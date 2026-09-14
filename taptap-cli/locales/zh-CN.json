@@ -12,13 +12,13 @@
       }
     },
     "call_tool": {
-      "description": "执行一个 TapTap 业务操作。name 来自 list_tools 的返回(形如 'app get-app-module',或快捷命令 'upload-apk'、'auth login-start');developer_id 和 app_id 是 scope 字段,直接传(插件映射为 --dev-id / --app-id);其余业务字段必须放进 data(JSON 对象);除 scope 和 data 外的键都是控制 flag,透传成对应 --flag;快捷命令的文件路径等位置参数放 _positional 数组。写操作必须先向用户确认:先用 dry_run:true 预览,再用相同参数加 yes:true 执行。失败结果带 execution_state 字段:not_executed 表示未生效、可按提示修正后重试;unknown 表示写操作可能已在服务端生效,必须先核对实际状态再决定是否重试,不要直接重跑。",
+      "description": "执行一个 TapTap 业务操作。name 来自 list_tools 的返回(形如 'app get-app-module',或快捷命令 'upload-apk'、'auth login-start');developer_id 和 app_id 是 scope 字段,直接传(插件映射为 --dev-id / --app-id);其余业务字段必须放进 data(JSON 对象);除 scope 和 data 外的键必须是 CLI 支持的控制 flag,透传成对应 --flag;未知 flag 会被拒绝;快捷命令的文件路径等位置参数放 _positional 数组。写操作必须先向用户确认:先用 dry_run:true 预览,再用相同参数加 yes:true 执行。失败结果带 execution_state 字段:not_executed 表示未生效、可按提示修正后重试;unknown 表示写操作可能已在服务端生效,必须先核对实际状态再决定是否重试,不要直接重跑。",
       "parameters": {
         "/properties/name": {
           "description": "操作名,来自 list_tools,如 'app get-app-module'。"
         },
         "/properties/args": {
-          "description": "操作参数 JSON 对象。developer_id/app_id 是 scope 字段直接传(映射为 --dev-id/--app-id);其余业务字段必须放进 data(JSON 对象);除 scope 和 data 外的键都是控制 flag,透传成 --flag。以 _ 开头的键是插件控制参数,不会转成 --flag:_positional(位置参数数组,如文件路径)、_help(查看该命令的 --help)、_timeout_seconds(单次超时秒数,最大 870,大文件上传等长任务用)。不确定参数时先用 list_tools 下钻该类目。"
+          "description": "操作参数 JSON 对象。developer_id/app_id 是 scope 字段直接传(映射为 --dev-id/--app-id);其余业务字段必须放进 data(JSON 对象);除 scope 和 data 外的键必须是 CLI 支持的控制 flag,透传成 --flag;未知 flag 会被拒绝。以 _ 开头的键是插件控制参数,不会转成 --flag:_positional(位置参数数组,如文件路径)、_help(查看该命令的 --help)、_timeout_seconds(单次超时秒数,最大 870,大文件上传等长任务用)。不确定参数时先用 list_tools 下钻该类目。"
         }
       }
     }

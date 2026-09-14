@@ -714,14 +714,32 @@ const TOOL_HEAD_RISKS = new Map([
 // only `--dev-id` and `--app-id` as scope flags (with those short names), and
 // every business field goes inside one `--data` JSON. The two scope names are
 // the CLI's fixed convention (matching the schema's developer_id / app_id),
-// not something the plugin invents. Every other key the agent passes is a
-// control flag, mirrored to the CLI verbatim (`dry_run` -> `--dry-run`), so the
-// plugin never has to maintain a list of which flags exist.
+// not something the plugin invents. Every other top-level key the agent passes
+// is a control flag, and it must be one of the CLI's real flags (KNOWN_FLAGS
+// below): an arbitrary key must not become an arbitrary CLI flag, which would
+// reopen the argument-injection boundary. Business fields stay inside `--data`
+// and are validated by the CLI's own inputSchema, which the plugin re-encodes
+// only as a closed flag list, never as a per-operation field table.
 const SCOPE_FLAG = {
   developer_id: 'dev-id',
   dev_id: 'dev-id',
   app_id: 'app-id',
 };
+
+// The CLI's complete top-level flag vocabulary, harvested from
+// `taptap-cli <op> --help` across every schema op, shortcut, and `+`
+// subcommand. Scope (`dev-id` / `app-id`) and `data` are handled structurally
+// above; every other key is mirrored as `--<flag>`. This closed set is what the
+// CLI actually accepts, so an unknown key is rejected here rather than passed
+// through to a CLI that would reject it anyway.
+const KNOWN_FLAGS = new Set([
+  'app-id', 'base-package-id', 'color', 'context', 'count', 'data', 'dev-id',
+  'dry-run', 'format', 'help', 'idempotency-key', 'json', 'launch-arg',
+  'launch-exe', 'layout', 'locale', 'manifest', 'output', 'output-dir', 'page',
+  'page-all', 'page-delay', 'page-limit', 'page-size', 'prompt', 'rule',
+  'run-id', 'scene', 'screen-orientation', 'style', 'type', 'version',
+  'windows-branch', 'yes',
+]);
 
 // Commands that take a local file path as a positional argument. Their path
 // must stay inside the host-authorized session workdir, otherwise an agent
@@ -769,15 +787,13 @@ function validateLocalPaths(tokens, args, workdir) {
   return null;
 }
 
-// `--data @file.json` / `--params @file.json` reference a local file; the @path
-// must stay inside the workdir like every other local input path.
+// `--data @file.json` references a local file; the @path must stay inside the
+// workdir like every other local input path.
 function validateFileRefs(args, workdir) {
-  for (const key of ['data', 'params']) {
-    const v = args && args[key];
-    if (typeof v === 'string' && v.startsWith('@')) {
-      const err = checkLocalPath(v.slice(1), workdir);
-      if (err) return { errorCode: 'PATH_OUTSIDE_WORKDIR', message: err };
-    }
+  const v = args && args.data;
+  if (typeof v === 'string' && v.startsWith('@')) {
+    const err = checkLocalPath(v.slice(1), workdir);
+    if (err) return { errorCode: 'PATH_OUTSIDE_WORKDIR', message: err };
   }
   return null;
 }
@@ -819,9 +835,14 @@ function buildArgv(tokens, args) {
       else if (typeof value === 'object') { Object.assign(dataObj, value); hasData = true; }
       continue;
     }
-    // Any other key is a control flag, mirrored verbatim to the CLI. Object
-    // values are JSON-encoded (e.g. raw API `--params`).
-    const flag = '--' + key.replace(/_/g, '-');
+    // Any other key is a control flag. It must be one of the CLI's real flags
+    // (KNOWN_FLAGS) — an arbitrary key must not become an arbitrary CLI flag.
+    // Object values are JSON-encoded.
+    const flagName = key.replace(/_/g, '-');
+    if (!KNOWN_FLAGS.has(flagName)) {
+      return { error: '未知 flag --' + flagName + ';业务字段请放进 data,可用控制 flag 见 list_tools 与 schema。' };
+    }
+    const flag = '--' + flagName;
     if (seenFlags.has(flag)) return { error: '重复 flag ' + flag + ';请只传一个。' };
     seenFlags.add(flag);
     if (value === true) argv.push(flag);

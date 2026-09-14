@@ -82,7 +82,7 @@
 - 需要用户转到网页继续时,遵循 shared execution 的人工页面交接规范:已知可靠入口必须首轮提供,URL 单独占一行且只展示一次;不要使用 Markdown 链接包装、追加追踪参数或猜测页面路径。
 - 写操作先读取最新状态和 `expected`,再 dry-run 或展示影响;`CONFIRM_REQUIRED` 是确认门禁,不是普通失败。
 - `dry_run: true` 只用于 write / create / delete 变更预览;`prepare-*` 类操作如果目录标记为 `risk: read`,它本身就是只读预览,直接调用,不要追加 dry-run。
-- 业务字段统一放 `args.data`,只有 `developer_id` / `app_id` 是独立 scope 字段(映射为 `--dev-id` / `--app-id`)。除 scope 和 `data` 外的键都是控制 flag,透传成 `--flag`。typed 命令的 `data` 是完整 tool input;raw API 的 `--params` 对应 `args.params`(URL/query JSON),raw API 的 `--data` 对应 `args.data`(request body JSON)。
+- 业务字段统一放 `args.data`,只有 `developer_id` / `app_id` 是独立 scope 字段(映射为 `--dev-id` / `--app-id`)。除 scope 和 `data` 外的键必须是 CLI 支持的控制 flag(见 list_tools 与 schema),透传成 `--flag`;未知 flag 会被拒绝。typed 命令的 `data` 是完整 tool input。
 - 默认输出就是 JSON,不要追加冗余的 `--format json`。
 - 面向用户回复时先给业务结论,再给风险和下一步;把字段 ID、camelCase key、数值状态和内部工具名翻译成可读标签。除非用户明确要求调试信息,不粘贴完整 raw JSON、schema 或底层请求。
 - `precheck-app-review` 返回 `required_consents` 时,只展示每项 `agreement.name` 和 `agreement.url`。任一字段缺失时停止并报告契约缺口,不得请求用户同意或回传 `consent_token`;只有详情齐全且用户在当前对话明确同意后,才把全部未过期的 token 原样放入 `submit-app-review` 的 `consent_tokens`,并保持原 `review_fingerprint` 和 `release_schedule` 不变。

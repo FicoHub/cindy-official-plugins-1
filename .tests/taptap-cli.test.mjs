@@ -179,6 +179,30 @@ test('asset-library output paths are confined to the workdir', () => {
   assert.match(pathFlags[1], /'output-dir'/, 'the hyphen spelling must not bypass the check');
 });
 
+test('arbitrary flag keys are rejected instead of becoming CLI flags', async () => {
+  // A control flag must be one the CLI actually implements; an unknown key must
+  // not turn into an arbitrary --flag (the argument-injection boundary). One
+  // request per worker so the async reply order cannot scramble assertions.
+  const workdir = '/tmp/taptap-cli-workdir';
+  const [reply] = await callWorker([
+    callTool('materials', { workdir, args: { _positional: ['+inspect', 'dir'], evil_flag: 'x' } }),
+  ]);
+  assert.equal(reply.result.ok, false);
+  assert.equal(reply.result.errorCode, 'INVALID_ARGS');
+  assert.match(reply.result.message, /未知 flag --evil-flag/);
+});
+
+test('the flag whitelist is the CLI\'s real vocabulary', () => {
+  // The closed flag list is harvested from `taptap-cli <op> --help`; these are
+  // the flags the worker may mirror as --flag. Removing one would silently break
+  // a real operation, so pin the important spellings.
+  const block = workerSource.match(/const KNOWN_FLAGS = new Set\(\[([\s\S]*?)\]\);/);
+  assert.ok(block, 'KNOWN_FLAGS must be declared');
+  for (const flag of ['dry-run', 'yes', 'format', 'idempotency-key', 'scene', 'screen-orientation', 'output-dir', 'rule']) {
+    assert.match(block[1], new RegExp(`'${flag}'`), `${flag} must stay in the flag whitelist`);
+  }
+});
+
 test('every relative link in the manuals resolves inside the package', () => {
   // Manuals are read on demand by the agent; a dangling link is a dead end that
   // no other gate catches, and manual dirs may contain Markdown only.

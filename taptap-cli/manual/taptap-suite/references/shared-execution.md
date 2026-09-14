@@ -18,7 +18,7 @@ taptap-cli schema <service> <method>
 ## JSON 输入和输出
 
 - `--dev-id` / `--app-id` 只在 operation 声明对应 scope 字段时存在；其余业务字段统一放入 `--data`。
-- 动态命令的 `--data` 是完整 operation input；CLI 按 OpenAPI `inputs` 拆分 query 和 body。raw API 的 `--params` 是 URL/query JSON，raw API 的 `--data` 是 request body JSON。
+- 动态命令的 `--data` 是完整 operation input；CLI 按 OpenAPI `inputs` 拆分 query 和 body。
 - 短 JSON 可 inline；复杂或多行 JSON 用 `@file`，文件必须位于会话工作目录（CLI 以会话工作目录为 cwd 解析该相对路径）。经本插件调用时没有可用的 stdin，`-` 不可用。
 - CLI 默认输出 JSON，普通命令、脚本、Skill 示例和生成命令都不追加冗余的 `--format json`。只有命令自身默认输出文本或原始内容，而调用方明确需要结构化 JSON 时才显式追加；切换人类可读或流式输出时使用 `pretty` / `table` / `ndjson` / `csv`。
 - JSON 是 agent 的执行输入，不是默认用户话术。回复用户时按“结论 -> 当前状态/缺口 -> 风险 -> 下一步”组织，把字段 ID、camelCase key、数值枚举和内部工具名翻译为业务标签；用户未要求调试时，不贴完整 raw JSON、schema 或底层请求。

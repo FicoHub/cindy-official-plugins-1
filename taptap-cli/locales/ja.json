@@ -12,13 +12,13 @@
       }
     },
     "call_tool": {
-      "description": "TapTap 業務操作を 1 つ実行します。name は list_tools の戻り値から取ります(例: 'app get-app-module'、ショートカットの 'upload-apk' や 'auth login-start')。developer_id と app_id は scope フィールドとして直接渡します(--dev-id / --app-id にマップ)。それ以外の業務フィールドはすべて data に JSON オブジェクトとして入れ、scope と data 以外のキーはすべて制御フラグとして --flag にそのまま渡し、ファイルパスなどの位置引数は _positional 配列に入れます。書き込み操作は必ずユーザーの確認を得てから、まず dry_run:true でプレビューし、同一の引数に yes:true を付けて実行してください。失敗結果には execution_state フィールドが付きます:not_executed は未実行で修正後の再試行が安全、unknown は書き込みが既に反映された可能性があるため、実際の状態を確認してから再試行するか判断し、そのまま再実行しないでください。",
+      "description": "TapTap 業務操作を 1 つ実行します。name は list_tools の戻り値から取ります(例: 'app get-app-module'、ショートカットの 'upload-apk' や 'auth login-start')。developer_id と app_id は scope フィールドとして直接渡します(--dev-id / --app-id にマップ)。それ以外の業務フィールドはすべて data に JSON オブジェクトとして入れ、scope と data 以外のキーはすべて CLI がサポートする制御フラグとして --flag にそのまま渡し(未知のフラグは拒否)、ファイルパスなどの位置引数は _positional 配列に入れます。書き込み操作は必ずユーザーの確認を得てから、まず dry_run:true でプレビューし、同一の引数に yes:true を付けて実行してください。失敗結果には execution_state フィールドが付きます:not_executed は未実行で修正後の再試行が安全、unknown は書き込みが既に反映された可能性があるため、実際の状態を確認してから再試行するか判断し、そのまま再実行しないでください。",
       "parameters": {
         "/properties/name": {
           "description": "list_tools が返す操作名(例: 'app get-app-module')。"
         },
         "/properties/args": {
-          "description": "操作引数の JSON オブジェクト。developer_id/app_id は scope フィールドとして直接渡し(--dev-id/--app-id にマップ)、それ以外の業務フィールドは data(JSON オブジェクト)に入れます。scope と data 以外のキーはすべて制御フラグとして --flag にそのまま渡します。_ で始まるキーはプラグインの制御用で、フラグにはなりません:_positional(ファイルパスなどの位置引数の配列)、_help(そのコマンドの --help を表示)、_timeout_seconds(1 回のタイムアウト秒数、最大 870、大きなアップロード向け)。不明な場合は先に list_tools でカテゴリへ絞り込んでください。"
+          "description": "操作引数の JSON オブジェクト。developer_id/app_id は scope フィールドとして直接渡し(--dev-id/--app-id にマップ)、それ以外の業務フィールドは data(JSON オブジェクト)に入れます。scope と data 以外のキーはすべて CLI がサポートする制御フラグとして --flag にそのまま渡します(未知のフラグは拒否)。_ で始まるキーはプラグインの制御用で、フラグにはなりません:_positional(ファイルパスなどの位置引数の配列)、_help(そのコマンドの --help を表示)、_timeout_seconds(1 回のタイムアウト秒数、最大 870、大きなアップロード向け)。不明な場合は先に list_tools でカテゴリへ絞り込んでください。"
         }
       }
     }

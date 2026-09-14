@@ -49,7 +49,7 @@ taptap-cli app +list --dev-id 1 --page-size 50
 - 只有当前 action schema 声明的 `--xxx value` 才会进入 input，未知 flag 会在请求前拒绝
 - `--dev-id` / `--app-id` 只在 operation 声明对应 scope 时注册；其余字段按 schema 放入 `--data`
 - 动态命令的 `--data` 是完整 operation input；资源发现优先使用命令树中的 `developer` / `app` 命令
-- `--data` / `--params` 支持 inline JSON 和当前目录内的 `@relative-file.json`；经本插件调用时没有可用的 stdin，`-` 不可用
+- `--data` 支持 inline JSON 和当前目录内的 `@relative-file.json`；经本插件调用时没有可用的 stdin，`-` 不可用
 - 短 JSON 使用 inline；复杂或多行 JSON 可用 `@file`，但文件必须位于会话工作目录（CLI 以会话工作目录为 cwd 解析该相对路径）
 - `--dev-id` / `--app-id` 与 `--data` 中同名字段冲突时返回 validation error，不静默覆盖
 - 默认输出是 JSON，普通命令、脚本、Skill 示例和生成命令都不追加冗余的 `--format json`

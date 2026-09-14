@@ -12,13 +12,13 @@
       }
     },
     "call_tool": {
-      "description": "TapTap 업무 작업을 하나 실행합니다. name 은 list_tools 의 반환값에서 가져옵니다(예: 'app get-app-module', 단축 명령 'upload-apk' 또는 'auth login-start'). developer_id 와 app_id 는 scope 필드로 직접 전달합니다(--dev-id / --app-id 로 매핑). 그 외 업무 필드는 모두 data 에 JSON 객체로 넣고, scope 와 data 외의 키는 모두 제어 플래그로 --flag 에 그대로 전달하고, 파일 경로 같은 위치 인수는 _positional 배열에 넣습니다. 쓰기 작업은 반드시 사용자 확인을 받은 뒤 dry_run:true 로 먼저 미리보기하고, 동일한 인수에 yes:true 를 붙여 실행하세요. 실패 결과에는 execution_state 필드가 붙습니다: not_executed 는 실행되지 않아 수정 후 재시도가 안전하고, unknown 은 쓰기가 이미 반영되었을 수 있으므로 실제 상태를 확인한 뒤 재시도 여부를 판단하고 그대로 다시 실행하지 마세요.",
+      "description": "TapTap 업무 작업을 하나 실행합니다. name 은 list_tools 의 반환값에서 가져옵니다(예: 'app get-app-module', 단축 명령 'upload-apk' 또는 'auth login-start'). developer_id 와 app_id 는 scope 필드로 직접 전달합니다(--dev-id / --app-id 로 매핑). 그 외 업무 필드는 모두 data 에 JSON 객체로 넣고, scope 와 data 외의 키는 모두 CLI 가 지원하는 제어 플래그로 --flag 에 그대로 전달하고(알 수 없는 플래그는 거부), 파일 경로 같은 위치 인수는 _positional 배열에 넣습니다. 쓰기 작업은 반드시 사용자 확인을 받은 뒤 dry_run:true 로 먼저 미리보기하고, 동일한 인수에 yes:true 를 붙여 실행하세요. 실패 결과에는 execution_state 필드가 붙습니다: not_executed 는 실행되지 않아 수정 후 재시도가 안전하고, unknown 은 쓰기가 이미 반영되었을 수 있으므로 실제 상태를 확인한 뒤 재시도 여부를 판단하고 그대로 다시 실행하지 마세요.",
       "parameters": {
         "/properties/name": {
           "description": "list_tools 가 반환하는 작업 이름입니다(예: 'app get-app-module')."
         },
         "/properties/args": {
-          "description": "작업 인수 JSON 객체입니다. developer_id/app_id 는 scope 필드로 직접 전달하고(--dev-id/--app-id 로 매핑), 그 외 업무 필드는 data(JSON 객체)에 넣습니다. scope 와 data 외의 키는 모두 제어 플래그로 --flag 에 그대로 전달합니다. _ 로 시작하는 키는 플러그인 제어용이며 플래그가 되지 않습니다: _positional(파일 경로 등 위치 인수 배열), _help(해당 명령의 --help 표시), _timeout_seconds(호출 타임아웃 초, 최대 870, 대용량 업로드용). 확실하지 않으면 먼저 list_tools 로 범주를 살펴보세요."
+          "description": "작업 인수 JSON 객체입니다. developer_id/app_id 는 scope 필드로 직접 전달하고(--dev-id/--app-id 로 매핑), 그 외 업무 필드는 data(JSON 객체)에 넣습니다. scope 와 data 외의 키는 모두 CLI 가 지원하는 제어 플래그로 --flag 에 그대로 전달합니다(알 수 없는 플래그는 거부). _ 로 시작하는 키는 플러그인 제어용이며 플래그가 되지 않습니다: _positional(파일 경로 등 위치 인수 배열), _help(해당 명령의 --help 표시), _timeout_seconds(호출 타임아웃 초, 최대 870, 대용량 업로드용). 확실하지 않으면 먼저 list_tools 로 범주를 살펴보세요."
         }
       }
     }
