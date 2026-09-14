@@ -720,6 +720,34 @@ const SCOPE_FLAG = {
   app_id: 'app-id',
 };
 
+// Commands that take a local file path as a positional argument. Their path
+// must stay inside the host-authorized session workdir, otherwise an agent
+// could read or upload arbitrary files outside the workspace.
+const PATH_COMMANDS = new Set([
+  'upload', 'upload-video', 'upload-apk', 'upload-pc-package', 'upload-h5-package',
+  'materials', 'test-qr-code',
+]);
+
+function validateLocalPaths(tokens, args, workdir) {
+  if (!PATH_COMMANDS.has(tokens[0])) return null;
+  const positional = args && Array.isArray(args._positional) ? args._positional : [];
+  for (const p of positional) {
+    if (typeof p !== 'string' || !p) continue;
+    if (path.isAbsolute(p)) {
+      return { errorCode: 'PATH_OUTSIDE_WORKDIR', message: '文件路径不能是绝对路径:' + p + ';请把文件放到会话工作目录后用相对路径。' };
+    }
+    if (!workdir) {
+      return { errorCode: 'WORKDIR_REQUIRED', message: '上传需要本地会话工作目录;当前会话没有可用的本地 workdir。' };
+    }
+    const resolved = path.resolve(workdir, p);
+    const rel = path.relative(workdir, resolved);
+    if (rel === '..' || rel.startsWith('..' + path.sep) || path.isAbsolute(rel)) {
+      return { errorCode: 'PATH_OUTSIDE_WORKDIR', message: '文件路径必须在会话工作目录内:' + p + ';不能用 ../ 访问工作目录外的文件。' };
+    }
+  }
+  return null;
+}
+
 function buildArgv(tokens, args) {
   const argv = tokens.slice();
   if (Array.isArray(args._positional)) argv.push(...args._positional.map(String));
@@ -884,6 +912,16 @@ async function callTool(params) {
       errorCode: 'CONFIRM_REQUIRED',
       execution_state: 'not_executed',
       message: '操作 ' + name + ' 的风险级别是 ' + risk + ',需要先取得用户明确同意:先用 dry_run:true 预览,用户确认后再用相同参数加 yes:true 执行。',
+    };
+  }
+
+  const pathErr = validateLocalPaths(tokens, args, runOpts.cwd);
+  if (pathErr) {
+    return {
+      ok: false,
+      errorCode: pathErr.errorCode,
+      execution_state: 'not_executed',
+      message: pathErr.message,
     };
   }
 
