@@ -12,10 +12,10 @@
 
 ### 本地盘点
 
-只读盘点命令是 `materials +inspect <directory|archive>`,安全扫描目录或 zip,输出每个文件的路径、识别类型、未知项和需要后续确认的歧义,不上传、不写资料、不绑定包体:
+只读盘点命令是 `materials +inspect <directory|archive>`,安全扫描目录或 zip,输出每个文件的路径、识别类型、未知项和需要后续确认的歧义,不上传、不写资料、不绑定包体。`<directory|archive>` 必须是会话工作目录内的相对路径(不能传绝对路径,也不能用 `../` 访问工作目录外的文件):
 
 ```text
-call_tool(name:"materials", args:{_positional:["+inspect","/绝对路径/目录或zip"]})
+call_tool(name:"materials", args:{_positional:["+inspect","相对路径/目录或zip"]})
 ```
 
 inspect 输出位于成功 envelope 的 `data` 下(`data.materials[]`、`data.summary`、可选 `data.skipped[]`、`data.handoff`)。目录或直接文件中的可上传 `materials[]` 至少包含 `path`、`name`、`kind` 和 `reason`;压缩包内条目使用 `fromArchive`、`needsExtraction=true`,不会伪装成可直接上传的本地路径。包体使用 `kind="package"`,再由 `packageType="apk|pc|h5|tap|unknown"` 区分。

@@ -728,11 +728,13 @@ const SCOPE_FLAG = {
 // could read or upload arbitrary files outside the workspace.
 const PATH_COMMANDS = new Set([
   'upload', 'upload-video', 'upload-apk', 'upload-pc-package', 'upload-h5-package',
-  'materials', 'test-qr-code',
+  'materials', 'test-qr-code', 'asset-library',
 ]);
 
-// Flag keys whose value is a local output path (e.g. test-qr-code --output).
-const PATH_FLAG_KEYS = new Set(['output']);
+// Flag keys whose value is a local output path (e.g. test-qr-code --output,
+// asset-library ai-image +plan --output-dir). Both the underscore and hyphen
+// spellings map to the same CLI flag, so both must stay inside the workdir.
+const PATH_FLAG_KEYS = new Set(['output', 'output_dir', 'output-dir']);
 
 function checkLocalPath(p, workdir) {
   if (typeof p !== 'string' || !p) return null;

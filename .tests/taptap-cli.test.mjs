@@ -149,6 +149,36 @@ test('a wrong path never falls through to the auto-detected CLI', async () => {
   assert.match(workerSource, /CLI_BASENAME_RE/);
 });
 
+test('local paths must stay inside the session workdir', async () => {
+  // materials +inspect is read-only but still must not reach outside the
+  // workdir: the manual documents relative paths, so an absolute path or a ../
+  // escape is rejected before the CLI runs.
+  const workdir = '/tmp/taptap-cli-workdir';
+  const replies = await callWorker([
+    callTool('materials', { workdir, args: { _positional: ['+inspect', '/etc/passwd'] } }),
+    callTool('materials', { workdir, args: { _positional: ['+inspect', '../outside'] } }),
+  ]);
+  for (const reply of replies) {
+    assert.equal(reply.result.ok, false);
+    assert.equal(reply.result.errorCode, 'PATH_OUTSIDE_WORKDIR');
+  }
+});
+
+test('asset-library output paths are confined to the workdir', () => {
+  // asset-library ai-image +plan --output-dir and +validate's positional
+  // output-dir must go through the same workdir check as upload/materials.
+  // asset-library is a service, so its risk needs a live catalog (absent in
+  // CI); assert the confinement wiring directly instead of via the CLI.
+  const pathCommands = workerSource.match(/const PATH_COMMANDS = new Set\(\[([\s\S]*?)\]\);/);
+  assert.ok(pathCommands, 'PATH_COMMANDS must be declared');
+  assert.match(pathCommands[1], /'asset-library'/, 'asset-library must be in PATH_COMMANDS');
+
+  const pathFlags = workerSource.match(/const PATH_FLAG_KEYS = new Set\(\[([\s\S]*?)\]\);/);
+  assert.ok(pathFlags, 'PATH_FLAG_KEYS must be declared');
+  assert.match(pathFlags[1], /'output_dir'/, 'output_dir must be validated as an output path');
+  assert.match(pathFlags[1], /'output-dir'/, 'the hyphen spelling must not bypass the check');
+});
+
 test('every relative link in the manuals resolves inside the package', () => {
   // Manuals are read on demand by the agent; a dangling link is a dead end that
   // no other gate catches, and manual dirs may contain Markdown only.
