@@ -728,21 +728,37 @@ const PATH_COMMANDS = new Set([
   'materials', 'test-qr-code',
 ]);
 
+// Flag keys whose value is a local output path (e.g. test-qr-code --output).
+const PATH_FLAG_KEYS = new Set(['output']);
+
+function checkLocalPath(p, workdir) {
+  if (typeof p !== 'string' || !p) return null;
+  if (path.isAbsolute(p)) {
+    return '文件路径不能是绝对路径:' + p + ';请把文件放到会话工作目录后用相对路径。';
+  }
+  if (!workdir) {
+    return '上传需要本地会话工作目录;当前会话没有可用的本地 workdir。';
+  }
+  const resolved = path.resolve(workdir, p);
+  const rel = path.relative(workdir, resolved);
+  if (rel === '..' || rel.startsWith('..' + path.sep) || path.isAbsolute(rel)) {
+    return '文件路径必须在会话工作目录内:' + p + ';不能用 ../ 访问工作目录外的文件。';
+  }
+  return null;
+}
+
 function validateLocalPaths(tokens, args, workdir) {
   if (!PATH_COMMANDS.has(tokens[0])) return null;
   const positional = args && Array.isArray(args._positional) ? args._positional : [];
   for (const p of positional) {
-    if (typeof p !== 'string' || !p) continue;
-    if (path.isAbsolute(p)) {
-      return { errorCode: 'PATH_OUTSIDE_WORKDIR', message: '文件路径不能是绝对路径:' + p + ';请把文件放到会话工作目录后用相对路径。' };
-    }
-    if (!workdir) {
-      return { errorCode: 'WORKDIR_REQUIRED', message: '上传需要本地会话工作目录;当前会话没有可用的本地 workdir。' };
-    }
-    const resolved = path.resolve(workdir, p);
-    const rel = path.relative(workdir, resolved);
-    if (rel === '..' || rel.startsWith('..' + path.sep) || path.isAbsolute(rel)) {
-      return { errorCode: 'PATH_OUTSIDE_WORKDIR', message: '文件路径必须在会话工作目录内:' + p + ';不能用 ../ 访问工作目录外的文件。' };
+    const err = checkLocalPath(p, workdir);
+    if (err) return { errorCode: 'PATH_OUTSIDE_WORKDIR', message: err };
+  }
+  for (const key of PATH_FLAG_KEYS) {
+    const v = args && args[key];
+    if (typeof v === 'string' && v) {
+      const err = checkLocalPath(v, workdir);
+      if (err) return { errorCode: 'PATH_OUTSIDE_WORKDIR', message: err };
     }
   }
   return null;
@@ -757,12 +773,19 @@ function buildArgv(tokens, args) {
   let hasData = false;
   let rawData = null;
 
+  // Reject duplicate flags so a second key cannot override a scope/data value or
+  // another flag. JSON keys are unique, but two keys can map to the same flag
+  // (developer_id and dev_id both -> --dev-id).
+  const seenFlags = new Set(['--help']);
   for (const [key, value] of Object.entries(args)) {
     if (key === 'callId' || key.charAt(0) === '_') continue;
     if (value === undefined || value === null) continue;
 
     if (SCOPE_FLAG[key]) {
-      argv.push('--' + SCOPE_FLAG[key], String(value));
+      const flag = '--' + SCOPE_FLAG[key];
+      if (seenFlags.has(flag)) return { error: '重复参数 ' + key + ',与 scope 字段冲突;请只传一个。' };
+      seenFlags.add(flag);
+      argv.push(flag, String(value));
       continue;
     }
     if (key === 'data') {
@@ -773,6 +796,8 @@ function buildArgv(tokens, args) {
     // Any other key is a control flag, mirrored verbatim to the CLI. Object
     // values are JSON-encoded (e.g. raw API `--params`).
     const flag = '--' + key.replace(/_/g, '-');
+    if (seenFlags.has(flag)) return { error: '重复 flag ' + flag + ';请只传一个。' };
+    seenFlags.add(flag);
     if (value === true) argv.push(flag);
     else if (value !== false) argv.push(flag, typeof value === 'object' ? JSON.stringify(value) : String(value));
   }
@@ -782,8 +807,7 @@ function buildArgv(tokens, args) {
     else if (Object.keys(dataObj).length > 0) argv.push('--data', JSON.stringify(dataObj));
   }
 
-  if (Array.isArray(args._extra_args)) argv.push(...args._extra_args.map(String));
-  return argv;
+  return { argv };
 }
 
 async function callTool(params) {
@@ -889,10 +913,9 @@ async function callTool(params) {
     risk = SHORTCUT_RISKS.get(tokens[0]) || 'read';
     // `task +resume` resumes an upload (external side effect), unlike the
     // read-only +list / +get, so it must be gated as a write. The resume marker
-    // can arrive through either positional args or the verbatim _extra_args.
+    // arrives through the positional args (the _extra_args channel is rejected).
     if (tokens[0] === 'task') {
-      const hasResume = (Array.isArray(args._positional) && args._positional.includes('+resume')) ||
-        (Array.isArray(args._extra_args) && args._extra_args.includes('+resume'));
+      const hasResume = Array.isArray(args._positional) && args._positional.includes('+resume');
       if (hasResume) risk = 'write';
     }
   } else if (headInfo.kind === 'tool') {
@@ -924,8 +947,30 @@ async function callTool(params) {
       message: pathErr.message,
     };
   }
+  // Reject any plugin control key other than the documented ones, so an agent
+  // cannot smuggle arbitrary CLI arguments through an undocumented channel.
+  for (const k of Object.keys(args)) {
+    if (k === 'callId' || k === '_positional' || k === '_help' || k === '_timeout_seconds') continue;
+    if (k.charAt(0) === '_') {
+      return {
+        ok: false,
+        errorCode: 'INVALID_ARGS',
+        execution_state: 'not_executed',
+        message: '不支持的控制参数 ' + k + ';请用结构化参数(scope / data / flag 键)或 _positional 传参。',
+      };
+    }
+  }
 
-  const argv = buildArgv(tokens, args);
+  const built = buildArgv(tokens, args);
+  if (built.error) {
+    return {
+      ok: false,
+      errorCode: 'INVALID_ARGS',
+      execution_state: 'not_executed',
+      message: built.error,
+    };
+  }
+  const argv = built.argv;
   const timeoutMs = args._timeout_seconds ? Number(args._timeout_seconds) * 1000 : DEFAULT_TIMEOUT_MS;
   const res = await runBinary(argv, {
     timeoutMs,
