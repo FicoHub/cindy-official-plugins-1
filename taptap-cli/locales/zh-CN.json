@@ -1,0 +1,26 @@
+{
+  "name": "TapTap CLI",
+  "description": "TapTap 开发者业务插件:调用你本机已安装的官方 taptap-cli。可做:登录与身份(查 developerId/appId)、创建游戏、读写游戏资料与主包体、上传图片/视频/APK/Windows/H5 包体、分析并补上架资质、提审与撤审、发布与版本生命周期、CBT/OBT 测试计划与激活码、游戏素材库检索与收录。认证复用 CLI 自己的本机登录态,插件不读取、不保存你的凭证;写操作带确认门禁。操作清单以 list_tools 的实时目录为准。",
+  "whenToUse": "需要操作 TapTap 开发者业务时找我:登录开发者账号、查 developerId/appId、创建新游戏、查看或修改游戏资料与主包体、上传图片/视频/APK/Windows/H5 包体、补上架资质、提交或撤销审核、发布游戏、管理 CBT/OBT 测试计划与激活码、检索游戏素材库",
+  "tools": {
+    "list_tools": {
+      "description": "列出 TapTap CLI 插件可用的业务操作。不传 category 返回类目概览(类目名+操作数量+全局执行规则);传 category 返回该类目下所有操作的名称、风险级别、参数 schema、use_when/avoid_when 与类目 RULES。固定类目:overview(登录态总览)、auth(登录与凭证)、shortcuts(端到端快捷命令)、service-tools(诊断、profile 与 schema 查询);其余为按业务域划分的动态类目(app、asset-library、developer、package-management、qualification、test-plan)。本插件不提供数据查询,下载/PV/评分/订单等经营数据不在目录中。第一次做某域业务前先下钻对应类目。",
+      "parameters": {
+        "/properties/category": {
+          "description": "类目名,来自概览返回。固定类目为 overview、auth、shortcuts、service-tools;动态类目为 app、asset-library、developer、package-management、qualification、test-plan。缺省返回类目概览。"
+        }
+      }
+    },
+    "call_tool": {
+      "description": "执行一个 TapTap 业务操作。name 来自 list_tools 的返回(形如 'app get-app-module',或快捷命令 'upload-apk'、'auth login-start');developer_id 和 app_id 是 scope 字段,直接传(插件映射为 --dev-id / --app-id);其余业务字段必须放进 data(JSON 对象);除 scope 和 data 外的键都是控制 flag,透传成对应 --flag;快捷命令的文件路径等位置参数放 _positional 数组。写操作必须先向用户确认:先用 dry_run:true 预览,再用相同参数加 yes:true 执行。失败结果带 execution_state 字段:not_executed 表示未生效、可按提示修正后重试;unknown 表示写操作可能已在服务端生效,必须先核对实际状态再决定是否重试,不要直接重跑。",
+      "parameters": {
+        "/properties/name": {
+          "description": "操作名,来自 list_tools,如 'app get-app-module'。"
+        },
+        "/properties/args": {
+          "description": "操作参数 JSON 对象。developer_id/app_id 是 scope 字段直接传(映射为 --dev-id/--app-id);其余业务字段必须放进 data(JSON 对象);除 scope 和 data 外的键都是控制 flag,透传成 --flag。以 _ 开头的键是插件控制参数,不会转成 --flag:_positional(位置参数数组,如文件路径)、_help(查看该命令的 --help)、_timeout_seconds(单次超时秒数,最大 870,大文件上传等长任务用)、_extra_args(需要原样追加的额外参数数组)。不确定参数时先用 list_tools 下钻该类目。"
+        }
+      }
+    }
+  }
+}
