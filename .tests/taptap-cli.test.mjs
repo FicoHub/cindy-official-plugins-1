@@ -18,7 +18,8 @@ const manifest = JSON.parse(
 );
 const workerSource = fs.readFileSync(workerPath, 'utf8');
 const mainSource = fs.readFileSync(path.join(root, 'taptap-cli', 'main.js'), 'utf8');
-const settingsSource = fs.readFileSync(path.join(root, 'taptap-cli', 'settings.html'), 'utf8');
+const settingsSource = fs.readFileSync(path.join(root, 'taptap-cli', 'settings.html'), 'utf8') +
+  '\n' + fs.readFileSync(path.join(root, 'taptap-cli', 'settings.js'), 'utf8');
 
 // Every file the package ships, so a rule cannot be satisfied in one file while
 // another (settings page, manual, locale) still violates it.

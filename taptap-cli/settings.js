@@ -12,6 +12,9 @@
   var MESSAGES = {
     en: {
       intro: 'This plugin runs the official taptap-cli you installed on this machine; it does not bundle a binary. Install and authorize it in a terminal first:',
+      installCommands: 'npm install -g @taptap/cli               # install (package ~37 MB)\ntaptap-cli update --skills-layout suite  # install AI Skills, merged into one taptap-suite\ntaptap-cli auth login                    # authorize',
+      installNote1: 'The plugin auto-searches PATH and version-manager global directories (nvm / proto / volta etc.), so it usually works right after install without configuring PATH.',
+      installNote2: 'Merging AI Skills into one taptap-suite minimizes overlap with this plugin\'s manuals; use --skills-layout separate if you want those skills individually.',
       pathLabel: 'CLI path (optional)',
       pathPlaceholder: 'Leave empty to auto-detect PATH, ~/.local/bin, and other common locations',
       save: 'Save',
@@ -22,6 +25,9 @@
     },
     'zh-CN': {
       intro: '本插件调用你本机已安装的官方 taptap-cli,不随包分发二进制。先在终端完成安装与授权:',
+      installCommands: 'npm install -g @taptap/cli               # 安装（包约 37MB）\ntaptap-cli update --skills-layout suite  # 安装 AI Skills，并合并为单个 taptap-suite\ntaptap-cli auth login                    # 授权',
+      installNote1: '插件会自动搜索 PATH 以及 nvm / proto / volta 等版本管理器下的全局目录，装完即可用，通常不需要手动配置 PATH。',
+      installNote2: 'AI Skills 合并为单个 taptap-suite 后，它与本插件手册的重叠面最小；若你还要单独使用那些 skill，把 --skills-layout 换成 separate 即可。',
       pathLabel: 'CLI 路径(可选)',
       pathPlaceholder: '留空则自动查找 PATH、~/.local/bin 等常见位置',
       save: '保存',
@@ -32,6 +38,9 @@
     },
     ja: {
       intro: 'このプラグインは、このマシンにインストール済みの公式 taptap-cli を実行します。バイナリは同梱しません。先にターミナルでインストールと認証を済ませてください:',
+      installCommands: 'npm install -g @taptap/cli               # インストール（約 37MB）\ntaptap-cli update --skills-layout suite  # AI Skills をインストールし、1 つの taptap-suite に統合\ntaptap-cli auth login                    # 認証',
+      installNote1: 'プラグインは PATH とバージョンマネージャ（nvm / proto / volta など）のグローバルディレクトリを自動検索するため、通常は PATH を手動設定しなくてもそのまま使えます。',
+      installNote2: 'AI Skills を 1 つの taptap-suite に統合すると、本プラグインのマニュアルとの重複が最小になります。個別の skill を使いたい場合は --skills-layout を separate にしてください。',
       pathLabel: 'CLI パス(任意)',
       pathPlaceholder: '空欄なら PATH や ~/.local/bin などから自動検出します',
       save: '保存',
@@ -42,6 +51,9 @@
     },
     ko: {
       intro: '이 플러그인은 이 컴퓨터에 설치된 공식 taptap-cli 를 실행하며, 바이너리를 함께 배포하지 않습니다. 먼저 터미널에서 설치와 인증을 완료하세요:',
+      installCommands: 'npm install -g @taptap/cli               # 설치（약 37MB）\ntaptap-cli update --skills-layout suite  # AI Skills 설치 후 하나의 taptap-suite 로 통합\ntaptap-cli auth login                    # 인증',
+      installNote1: '플러그인은 PATH 와 버전 관리자(nvm / proto / volta 등)의 전역 디렉터리를 자동으로 검색하므로, 보통 설치 후 PATH 를 수동 설정하지 않아도 바로 사용할 수 있습니다.',
+      installNote2: 'AI Skills 를 하나의 taptap-suite 로 통합하면 이 플러그인 매뉴얼과의 중복이 최소화됩니다. 개별 skill 을 사용하려면 --skills-layout 을 separate 로 바꾸세요.',
       pathLabel: 'CLI 경로(선택)',
       pathPlaceholder: '비워 두면 PATH, ~/.local/bin 등에서 자동으로 찾습니다',
       save: '저장',
