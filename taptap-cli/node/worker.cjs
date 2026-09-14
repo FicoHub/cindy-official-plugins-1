@@ -417,7 +417,10 @@ const SERVICE_TOOLS = [
 
 const ALLOWED_HEADS = new Map();
 for (const [service, description] of Object.entries(SERVICE_DESCRIPTIONS)) {
-  ALLOWED_HEADS.set(service, { kind: 'service', maxTokens: 2, description });
+  // asset-library has three-token operations (asset-library ai-image +rules /
+  // +plan / +validate).
+  const maxTokens = service === 'asset-library' ? 3 : 2;
+  ALLOWED_HEADS.set(service, { kind: 'service', maxTokens, description });
 }
 for (const shortcut of SHORTCUTS) {
   ALLOWED_HEADS.set(shortcut.name, { kind: 'shortcut', maxTokens: 1, description: shortcut.description });
@@ -764,9 +767,30 @@ function validateLocalPaths(tokens, args, workdir) {
   return null;
 }
 
+// `--data @file.json` / `--params @file.json` reference a local file; the @path
+// must stay inside the workdir like every other local input path.
+function validateFileRefs(args, workdir) {
+  for (const key of ['data', 'params']) {
+    const v = args && args[key];
+    if (typeof v === 'string' && v.startsWith('@')) {
+      const err = checkLocalPath(v.slice(1), workdir);
+      if (err) return { errorCode: 'PATH_OUTSIDE_WORKDIR', message: err };
+    }
+  }
+  return null;
+}
+
 function buildArgv(tokens, args) {
   const argv = tokens.slice();
-  if (Array.isArray(args._positional)) argv.push(...args._positional.map(String));
+  if (Array.isArray(args._positional)) {
+    for (const p of args._positional) {
+      const s = String(p);
+      if (s.startsWith('-')) {
+        return { error: '位置参数不能以 - 开头(' + s + ');选项请用结构化 flag 键传。' };
+      }
+      argv.push(s);
+    }
+  }
   if (args._help === true) argv.push('--help');
 
   const dataObj = {};
@@ -959,6 +983,16 @@ async function callTool(params) {
         message: '不支持的控制参数 ' + k + ';请用结构化参数(scope / data / flag 键)或 _positional 传参。',
       };
     }
+  }
+
+  const fileErr = validateFileRefs(args, runOpts.cwd);
+  if (fileErr) {
+    return {
+      ok: false,
+      errorCode: fileErr.errorCode,
+      execution_state: 'not_executed',
+      message: fileErr.message,
+    };
   }
 
   const built = buildArgv(tokens, args);

@@ -18,7 +18,7 @@
           "description": "操作名,来自 list_tools,如 'app get-app-module'。"
         },
         "/properties/args": {
-          "description": "操作参数 JSON 对象。developer_id/app_id 是 scope 字段直接传(映射为 --dev-id/--app-id);其余业务字段必须放进 data(JSON 对象);除 scope 和 data 外的键都是控制 flag,透传成 --flag。以 _ 开头的键是插件控制参数,不会转成 --flag:_positional(位置参数数组,如文件路径)、_help(查看该命令的 --help)、_timeout_seconds(单次超时秒数,最大 870,大文件上传等长任务用)、_extra_args(需要原样追加的额外参数数组)。不确定参数时先用 list_tools 下钻该类目。"
+          "description": "操作参数 JSON 对象。developer_id/app_id 是 scope 字段直接传(映射为 --dev-id/--app-id);其余业务字段必须放进 data(JSON 对象);除 scope 和 data 外的键都是控制 flag,透传成 --flag。以 _ 开头的键是插件控制参数,不会转成 --flag:_positional(位置参数数组,如文件路径)、_help(查看该命令的 --help)、_timeout_seconds(单次超时秒数,最大 870,大文件上传等长任务用)。不确定参数时先用 list_tools 下钻该类目。"
         }
       }
     }

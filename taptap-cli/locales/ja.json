@@ -18,7 +18,7 @@
           "description": "list_tools が返す操作名(例: 'app get-app-module')。"
         },
         "/properties/args": {
-          "description": "操作引数の JSON オブジェクト。developer_id/app_id は scope フィールドとして直接渡し(--dev-id/--app-id にマップ)、それ以外の業務フィールドは data(JSON オブジェクト)に入れます。scope と data 以外のキーはすべて制御フラグとして --flag にそのまま渡します。_ で始まるキーはプラグインの制御用で、フラグにはなりません:_positional(ファイルパスなどの位置引数の配列)、_help(そのコマンドの --help を表示)、_timeout_seconds(1 回のタイムアウト秒数、最大 870、大きなアップロード向け)、_extra_args(そのまま追加する引数の配列)。不明な場合は先に list_tools でカテゴリへ絞り込んでください。"
+          "description": "操作引数の JSON オブジェクト。developer_id/app_id は scope フィールドとして直接渡し(--dev-id/--app-id にマップ)、それ以外の業務フィールドは data(JSON オブジェクト)に入れます。scope と data 以外のキーはすべて制御フラグとして --flag にそのまま渡します。_ で始まるキーはプラグインの制御用で、フラグにはなりません:_positional(ファイルパスなどの位置引数の配列)、_help(そのコマンドの --help を表示)、_timeout_seconds(1 回のタイムアウト秒数、最大 870、大きなアップロード向け)。不明な場合は先に list_tools でカテゴリへ絞り込んでください。"
         }
       }
     }

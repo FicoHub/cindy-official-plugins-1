@@ -18,7 +18,7 @@
           "description": "Operation name from list_tools, for example 'app get-app-module'."
         },
         "/properties/args": {
-          "description": "Operation arguments as a JSON object. developer_id/app_id are scope fields passed directly (mapped to --dev-id/--app-id); every other business field must go in `data` (a JSON object); any key other than scope and data is a control flag, mirrored as --flag. Keys beginning with `_` are plugin controls and never become flags: `_positional` (array of positional arguments such as file paths), `_help` (show that command's --help), `_timeout_seconds` (per-call timeout in seconds, max 870, for long uploads), `_extra_args` (array of extra arguments appended verbatim). When unsure, drill into the category with list_tools first."
+          "description": "Operation arguments as a JSON object. developer_id/app_id are scope fields passed directly (mapped to --dev-id/--app-id); every other business field must go in `data` (a JSON object); any key other than scope and data is a control flag, mirrored as --flag. Keys beginning with `_` are plugin controls and never become flags: `_positional` (array of positional arguments such as file paths), `_help` (show that command's --help), `_timeout_seconds` (per-call timeout in seconds, max 870, for long uploads). When unsure, drill into the category with list_tools first."
         }
       }
     }
