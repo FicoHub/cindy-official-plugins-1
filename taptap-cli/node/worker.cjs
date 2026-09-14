@@ -776,7 +776,16 @@ async function callTool(params) {
   const headInfo = ALLOWED_HEADS.get(tokens[0]);
   let alias = null;
   if (!headInfo) {
-    // Not a static head; it may be a colon alias read live from the CLI.
+    // Not a static head. Only a single-token colon name can be a live alias, so
+    // reject everything else before consulting the CLI — otherwise an absent CLI
+    // would turn an invalid head into CLI_NOT_INSTALLED instead of UNKNOWN_TOOL.
+    if (tokens.length > 1 || tokens[0].indexOf(':') < 0) {
+      return {
+        ok: false,
+        errorCode: 'UNKNOWN_TOOL',
+        message: '未知操作 "' + name + '";先用 list_tools() 看类目概览,或传 category 下钻查看可用操作。',
+      };
+    }
     let aliases;
     try {
       aliases = await getAliases(runOpts);
@@ -784,7 +793,7 @@ async function callTool(params) {
       return catalogFailure(err);
     }
     alias = aliases.find((a) => a.alias === tokens[0]) || null;
-    if (!alias || tokens.length !== 1) {
+    if (!alias) {
       return {
         ok: false,
         errorCode: 'UNKNOWN_TOOL',
@@ -934,17 +943,22 @@ async function callTool(params) {
     };
   }
   if (res.code !== 0) {
-    // A structured CLI error means the CLI itself decided the outcome. A bare
-    // non-zero exit with no envelope (crash, signal, killed helper) does not,
-    // so a write must be treated as possibly-executed rather than failed.
-    const state = env && env.ok === false && env.error ? 'not_executed' : unknownForWrite;
+    // A structured CLI error usually means the CLI decided the outcome (safe to
+    // treat as not-executed). But the CLI can also report an ambiguous outcome —
+    // e.g. subtype "ambiguous_outcome" on a 409 — where it does not know whether
+    // a write was applied; those must stay unknown so the agent verifies first.
+    // A bare non-zero exit with no envelope (crash, signal, killed helper) is
+    // likewise indeterminate for a write.
+    const err = env && env.ok === false && env.error ? env.error : null;
+    const ambiguous = Boolean(err) && /ambiguous|unknown|indeterminate/i.test(String(err.subtype || '') + String(err.type || ''));
+    const state = (err && !ambiguous) ? 'not_executed' : unknownForWrite;
     return {
       ok: false,
       errorCode: 'CLI_FAILED',
       exit_code: res.code,
       execution_state: state,
       message: briefFailure(res, env) + (state === 'unknown'
-        ? ';命令异常退出且没有返回结构化结果,该写操作是否已在服务端生效不确定:请先核对实际状态再决定是否重试,不要直接重跑。'
+        ? ';该写操作是否已在服务端生效不确定:请先核对实际状态再决定是否重试,不要直接重跑。'
         : ''),
       data: env || { raw: clip(res.stdout, 20 * 1024) },
     };

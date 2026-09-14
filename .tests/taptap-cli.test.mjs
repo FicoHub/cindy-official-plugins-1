@@ -412,8 +412,11 @@ test('a write that fails ambiguously is reported as unknown, never as failed', (
   }
   assert.match(workerSource, /不要直接重跑/, 'an unknown outcome must tell the agent to verify before retrying');
 
-  // A structured CLI error is the CLI deciding the outcome, so it is not ambiguous.
-  assert.match(workerSource, /env\.ok === false && env\.error \? 'not_executed' : unknownForWrite/);
+  // A structured CLI error is usually the CLI deciding the outcome (not
+  // executed), but an ambiguous subtype (e.g. ambiguous_outcome) means the CLI
+  // does not know whether a write was applied, so it must stay unknown.
+  assert.match(workerSource, /const ambiguous = Boolean\(err\)/);
+  assert.match(workerSource, /\(err && !ambiguous\) \? 'not_executed' : unknownForWrite/);
 
   // The worker computing the state is not enough: the brain must carry it into
   // the tool result, or the agent only ever sees prose. Other CLI-backed
