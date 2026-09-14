@@ -20,6 +20,7 @@
 // reads or stores credentials: they live in the CLI's own credential store.
 
 const { execFile } = require('child_process');
+const crypto = require('crypto');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
@@ -392,7 +393,7 @@ const SERVICE_DESCRIPTIONS = {
 // The colon aliases (game:create, audit:submit, ...) are read live from
 // `taptap-cli aliases` via getAliases instead of being hand-listed here.
 const SHORTCUTS = [
-  { name: 'test-qr-code', risk: 'read', description: '生成自测二维码 PNG(--output 指定文件路径)' },
+  { name: 'test-qr-code', risk: 'write', description: '生成自测二维码 PNG(--output 指定文件路径)' },
   { name: 'upload', risk: 'write', description: '上传一张图片并收录进素材库(需 idempotency_key)' },
   { name: 'upload-video', risk: 'write', description: '上传视频(scene 决定回填目标字段)' },
   { name: 'upload-apk', risk: 'write', description: '上传 APK 并创建包体记录' },
@@ -560,26 +561,36 @@ const AUTH_OPERATIONS = [
 
 // The CLI's device-code flow is stateless: `auth login --no-wait` returns a
 // device code, and `auth login --device-code` resumes polling with it. The code
-// must therefore survive the gap between login-start and login-wait. Instead of
-// persisting it to a file (which the repository forbids), the device code and
-// its polling parameters are carried inside the login_handle itself, which the
-// agent passes back verbatim on login-wait.
-function encodeLoginHandle(deviceCode, expiresAt, interval) {
-  return Buffer.from(JSON.stringify({
-    code: deviceCode,
-    expires: expiresAt || undefined,
-    interval,
-  })).toString('base64');
+// must survive the gap between login-start and login-wait without being
+// persisted to a file (forbidden by the repository) or returned to the agent
+// (where a base64 blob could be decoded). It is held in-process under an opaque
+// random handle; if the worker idles out between the two calls the handle is
+// lost and the agent must re-run login-start.
+const loginHandles = new Map();
+
+function newLoginHandle(deviceCode, expiresAt, interval) {
+  const id = 'login_' + crypto.randomBytes(16).toString('hex');
+  loginHandles.set(id, {
+    device_code: deviceCode,
+    expires_at_unix: expiresAt || undefined,
+    interval_seconds: interval,
+    created_at_unix: Math.floor(Date.now() / 1000),
+  });
+  // Drop stale handles so the map cannot grow without bound.
+  const nowUnix = Math.floor(Date.now() / 1000);
+  for (const [key, value] of loginHandles) {
+    if (!value || !value.created_at_unix || nowUnix - value.created_at_unix > 3600) loginHandles.delete(key);
+  }
+  return id;
 }
 
-function decodeLoginHandle(handle) {
-  if (typeof handle !== 'string' || !handle) return null;
-  try {
-    const decoded = JSON.parse(Buffer.from(handle, 'base64').toString('utf8'));
-    return decoded && typeof decoded === 'object' && typeof decoded.code === 'string' ? decoded : null;
-  } catch (_) {
-    return null;
-  }
+function getLoginHandle(id) {
+  if (typeof id !== 'string' || !id) return null;
+  return loginHandles.get(id) || null;
+}
+
+function deleteLoginHandle(id) {
+  if (typeof id === 'string') loginHandles.delete(id);
 }
 
 async function authLoginStart(params) {
@@ -609,24 +620,24 @@ async function authLoginStart(params) {
       verification_url: data.verification_url,
       expires_at_unix: data.expires_at || undefined,
       interval_seconds: interval,
-      login_handle: encodeLoginHandle(data.device_code, data.expires_at, interval),
+      login_handle: newLoginHandle(data.device_code, data.expires_at, interval),
       display_contract: '把 verification_url 按两行原样展示给用户(第一行仅"请完成授权:",第二行仅 URL),然后立即用 login_handle 调用 auth login-wait,不要等待用户回复。',
     },
   };
 }
 
 async function authLoginWait(params) {
-  const handle = decodeLoginHandle(params && params.login_handle);
+  const handle = getLoginHandle(params && params.login_handle);
   if (!handle) {
     return {
       ok: false,
       errorCode: 'LOGIN_HANDLE_INVALID',
-      message: 'login_handle 无效或已损坏;请重新调用 auth login-start 换取新的授权链接。',
+      message: 'login_handle 无效、已过期或 worker 已重启;请重新调用 auth login-start 换取新的授权链接。',
     };
   }
-  const argv = ['auth', 'login', '--json', '--device-code', handle.code];
-  if (handle.expires) argv.push('--expires-at-unix', String(handle.expires));
-  argv.push('--interval-seconds', String(handle.interval || 5));
+  const argv = ['auth', 'login', '--json', '--device-code', handle.device_code];
+  if (handle.expires_at_unix) argv.push('--expires-at-unix', String(handle.expires_at_unix));
+  argv.push('--interval-seconds', String(handle.interval_seconds || 5));
   const runOpts = runOptions(params);
   const res = await runBinary(argv, {
     timeoutMs: MAX_TIMEOUT_MS,
@@ -635,6 +646,10 @@ async function authLoginWait(params) {
     cliPath: runOpts.cliPath,
     cwd: runOpts.cwd,
   });
+  // A timeout leaves the device code usable, so keep the handle and let the
+  // agent resume polling. Any completed run (success or a hard CLI failure)
+  // consumes it.
+  if (!res.killed) deleteLoginHandle(params && params.login_handle);
   if (res.cliUnavailable) {
     return { ok: false, errorCode: res.cliErrorCode || 'CLI_NOT_INSTALLED', message: res.message };
   }
@@ -836,9 +851,12 @@ async function callTool(params) {
   } else if (headInfo.kind === 'shortcut') {
     risk = SHORTCUT_RISKS.get(tokens[0]) || 'read';
     // `task +resume` resumes an upload (external side effect), unlike the
-    // read-only +list / +get, so it must be gated as a write.
-    if (tokens[0] === 'task' && Array.isArray(args._positional) && args._positional.includes('+resume')) {
-      risk = 'write';
+    // read-only +list / +get, so it must be gated as a write. The resume marker
+    // can arrive through either positional args or the verbatim _extra_args.
+    if (tokens[0] === 'task') {
+      const hasResume = (Array.isArray(args._positional) && args._positional.includes('+resume')) ||
+        (Array.isArray(args._extra_args) && args._extra_args.includes('+resume'));
+      if (hasResume) risk = 'write';
     }
   } else if (headInfo.kind === 'tool') {
     risk = TOOL_HEAD_RISKS.get(name) || 'write';
