@@ -6,10 +6,12 @@ import path from 'node:path';
 import test from 'node:test';
 
 // These tests cover the worker's decision logic — argument rejection, the write
-// confirmation gate, and the read-only gate — which all resolve before the CLI
-// is ever executed. They therefore pass on a machine with no taptap-cli
-// installed, which is what CI is. Anything that actually runs the CLI is
-// exercised by hand against a real installation, not here.
+// confirmation gate, and the read-only gate. Since the plugin reads its whole
+// command surface from the CLI (existence, risk, arguments), every test drives
+// the worker through the fixture CLI below: CI has no taptap-cli installed, and
+// a file that forgets the fixture would fail there while passing on a machine
+// that happens to have one. Anything that really runs the CLI is exercised by
+// hand against a real installation, not here.
 
 const root = path.resolve(import.meta.dirname, '..');
 const workerPath = path.join(root, 'taptap-cli', 'node', 'worker.cjs');
@@ -70,6 +72,11 @@ const FIXTURE_TREE = {
     ['list', 'List profiles'],
     ['use', 'Select a profile'],
   ],
+  auth: [
+    ['logout', 'Clear the local credential'],
+    ['qrcode', 'Generate an authorization QR code'],
+    ['status', 'Show the current login state'],
+  ],
 };
 
 // Only commands the real CLI prints a Risk line for. `materials` and `task` are
@@ -91,6 +98,8 @@ const FIXTURE_RISK = {
   version: 'read',
   'task +get': 'read',
   'profile use': 'write',
+  'auth logout': 'write',
+  'auth qrcode': 'read',
 };
 
 const FIXTURE_SCHEMA = [
@@ -266,7 +275,9 @@ test('the plugin ships no bundled CLI binary and never downloads one', () => {
 });
 
 test('unlisted operations are rejected without reaching the CLI', async () => {
-  const [reply] = await callWorker([callTool('totally-made-up')]);
+  // The command tree decides what exists, so this needs the fixture: with no
+  // CLI at all the worker cannot even read the tree and reports that instead.
+  const [reply] = await callWorker([callTool('totally-made-up', { cli_path: fakeCli })]);
   assert.equal(reply.result.ok, false);
   assert.equal(reply.result.errorCode, 'UNKNOWN_TOOL');
 });
@@ -703,7 +714,7 @@ test('shortcut names with a colon resolve as live aliases', () => {
 });
 
 test('a write operation is refused until the user confirms', async () => {
-  const [reply] = await callWorker([callTool('auth logout')]);
+  const [reply] = await callWorker([callTool('auth logout', { cli_path: fakeCli })]);
   assert.equal(reply.result.ok, false);
   assert.equal(reply.result.errorCode, 'CONFIRM_REQUIRED');
   assert.match(reply.result.message, /auth logout/);
@@ -722,7 +733,9 @@ test('every operation with a write risk declares one', () => {
 });
 
 test('a read-only session refuses writes even with yes:true', async () => {
-  const [reply] = await callWorker([callTool('auth logout', { yes: true, read_only: true })]);
+  const [reply] = await callWorker([
+    callTool('auth logout', { cli_path: fakeCli, yes: true, read_only: true }),
+  ]);
   assert.equal(reply.result.ok, false);
   assert.equal(reply.result.errorCode, 'SESSION_READ_ONLY');
 });
@@ -731,8 +744,8 @@ test('rejections report that nothing was executed', async () => {
   // The agent must be able to tell "refused, safe to retry" from
   // "maybe already applied, check first".
   const [gate, readOnly] = await callWorker([
-    callTool('auth logout'),
-    callTool('upload-apk', { yes: true, read_only: true }),
+    callTool('auth logout', { cli_path: fakeCli }),
+    callTool('upload-apk', { cli_path: fakeCli, yes: true, read_only: true }),
   ]);
   assert.equal(gate.result.execution_state, 'not_executed');
   assert.equal(readOnly.result.execution_state, 'not_executed');
