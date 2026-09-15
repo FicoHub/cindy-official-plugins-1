@@ -746,6 +746,22 @@ test('the install guidance recommends the suite layout', () => {
   }
 });
 
+test('every locale discloses what the catalogue leaves out', () => {
+  // The localized tool descriptions are the only contract an agent in that
+  // language sees. If they promise "whatever the CLI has" without naming the
+  // exclusions, that agent looks for — and calls — operations the worker
+  // refuses.
+  const EXCLUDED = /dashboard-stats|update|auth login/i;
+  for (const loc of ['zh-CN', 'en', 'ja', 'ko']) {
+    const resource = JSON.parse(
+      fs.readFileSync(path.join(root, 'taptap-cli', 'locales', `${loc}.json`), 'utf8'));
+    const text = resource.tools.list_tools.description;
+    assert.match(text, EXCLUDED, `${loc}: the exclusions must be named`);
+    assert.doesNotMatch(text, /whatever the CLI has is what you see|そのまま見えます|그대로 보입니다/,
+      `${loc}: no absolute "mirrors everything" claim`);
+  }
+});
+
 test('discovery text never advertises the data-query domain', () => {
   // whenToUse is what the agent uses to decide whether this plugin answers a
   // question. It kept advertising download/rating/order data after that domain

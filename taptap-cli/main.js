@@ -32,9 +32,18 @@ function readSettings() {
       clearTimeout(timer);
       resolve(cfg && typeof cfg === 'object' ? cfg : {});
     };
+    var failed = function () {
+      // A transient /kv failure must not be cached: the cached value would
+      // answer every later call with no cli_path, so a CLI that is not on the
+      // auto-detected path would report CLI_NOT_INSTALLED until the plugin
+      // reloads. Drop the promise so the next call reads again.
+      settingsPromise = null;
+      clearTimeout(timer);
+      resolve({});
+    };
     fetch('/kv', { signal: controller.signal })
       .then(function (res) { return res.json(); })
-      .then(done, function () { done({}); });
+      .then(done, failed);
   });
   return settingsPromise;
 }
