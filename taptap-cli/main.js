@@ -52,12 +52,16 @@ function reply(callId, payload) {
   cindy.send(Object.assign({ type: 'tool-result', callId: callId }, payload));
 }
 
-function fail(callId, errorCode, message, executionState) {
+function fail(callId, errorCode, message, executionState, data) {
   var payload = { ok: false, errorCode: errorCode, message: message };
   // Surfaced as a field, not only in prose, so the agent can tell "refused,
   // safe to retry" from "may already have been applied, check first" without
   // parsing the message. Same field name the other CLI-backed plugins use.
   if (executionState) payload.execution_state = executionState;
+  // The worker keeps the CLI's own envelope on failure — the error type, hint
+  // and any handles a half-finished upload already created. Dropping it here
+  // would leave the agent unable to resume without re-uploading.
+  if (data !== undefined) payload.data = data;
   reply(callId, payload);
 }
 
@@ -107,7 +111,8 @@ cindy.onHostMessage(function (msg) {
         callId,
         (result && result.errorCode) || (resp && resp.errorCode) || 'CLI_ERROR',
         (result && result.message) || (resp && resp.message) || 'TapTap CLI 执行失败,无附加信息',
-        result && result.execution_state
+        result && result.execution_state,
+        result && result.data
       );
     })
     .catch(function (err) {

@@ -217,15 +217,22 @@ function clip(text, maxBytes) {
   return Buffer.from(text, 'utf8').slice(0, limit).toString('utf8');
 }
 
-function parseEnvelope(stdout) {
-  const text = (stdout || '').trim();
-  if (!text) return null;
-  try {
-    const parsed = JSON.parse(text);
-    return parsed && typeof parsed === 'object' ? parsed : null;
-  } catch (_) {
-    return null;
+// The CLI writes its envelope to stdout on success and to stderr on failure
+// (with a non-zero exit code), so a reader that only looks at stdout loses
+// every structured error. Callers pass whichever stream is expected first and
+// the other as a fallback.
+function parseEnvelope(primary, fallback) {
+  for (const stream of [primary, fallback]) {
+    const text = (stream || '').trim();
+    if (!text) continue;
+    try {
+      const parsed = JSON.parse(text);
+      if (parsed && typeof parsed === 'object') return parsed;
+    } catch (_) {
+      // not the envelope; try the next stream
+    }
   }
+  return null;
 }
 
 // Run the CLI binary with a keep-alive heartbeat. `callId` (when present) is
@@ -249,13 +256,32 @@ function runBinary(argv, opts) {
       message: (resolved.error && resolved.error.message) || 'taptap-cli 不可用。',
     });
   }
+  // A requested working directory that cannot be used is refused, never
+  // silently dropped: falling back to the worker's own directory would let the
+  // CLI resolve a relative path (`upload ./x`, `--output x`) somewhere the
+  // session never authorized. Callers that read no file do not pass one.
+  if (options.cwd && !fs.existsSync(options.cwd)) {
+    return Promise.resolve({
+      code: -1,
+      err: null,
+      killed: false,
+      maxBufferExceeded: false,
+      stdout: '',
+      stderr: '',
+      durationMs: 0,
+      cliUnavailable: true,
+      cliErrorCode: 'WORKDIR_REQUIRED',
+      message: '会话工作目录已不可用:' + options.cwd
+        + ';CLI 以它为基准限定本地文件路径,不能在其它目录下代替执行。请在有效的会话工作目录里重试。',
+    });
+  }
   return new Promise((resolve) => {
     const started = Date.now();
     const child = execFile(resolved.cmd, argv, {
       timeout: timeoutMs,
       maxBuffer: 4 * 1024 * 1024,
       windowsHide: true,
-      cwd: options.cwd && fs.existsSync(options.cwd) ? options.cwd : undefined,
+      cwd: options.cwd || undefined,
       env: childEnv(resolved.source),
     }, (err, stdout, stderr) => {
       clearInterval(timer);
@@ -306,7 +332,7 @@ function getCatalog(runOpts) {
       if (res.code !== 0) {
         throw new Error('读取 CLI 命令目录失败(exit ' + res.code + '):' + clip(res.stderr, 500));
       }
-      const env = parseEnvelope(res.stdout);
+      const env = parseEnvelope(res.stdout, res.stderr);
       if (!env || env.ok !== true || !Array.isArray(env.data)) {
         throw new Error('CLI 命令目录格式异常');
       }
@@ -353,7 +379,7 @@ function getAliases(runOpts) {
       if (res.code !== 0) {
         throw new Error('读取 CLI 快捷命令失败(exit ' + res.code + '):' + clip(res.stderr, 500));
       }
-      const env = parseEnvelope(res.stdout);
+      const env = parseEnvelope(res.stdout, res.stderr);
       if (!env || env.ok !== true || !env.data || !Array.isArray(env.data.aliases)) {
         throw new Error('CLI 快捷命令格式异常');
       }
@@ -409,10 +435,11 @@ async function completePath(runOpts, tokens, partial) {
   const key = (options.cliPath || '') + ' ' + tokens.join(' ') + ' ' + suffix;
   if (!treeCache.has(key)) {
     const promise = (async () => {
+      // No cwd: reading the command tree touches no file, and leaving it out
+      // keeps discovery working when the session workdir has gone away.
       const res = await runBinary(['__complete'].concat(tokens, [suffix]), {
         label: '读取命令树',
         cliPath: options.cliPath,
-        cwd: options.cwd,
       });
       if (res.cliUnavailable) {
         const err = new Error(res.message);
@@ -448,11 +475,11 @@ async function helpRisk(runOpts, tokens) {
   const key = (options.cliPath || '') + ' ' + tokens.join(' ');
   if (!riskCache.has(key)) {
     const promise = (async () => {
+      // No cwd: printing help reads no file either.
       const res = await runBinary(tokens.concat(['--help']), {
         timeoutMs: 60 * 1000,
         label: '读取命令风险级别',
         cliPath: options.cliPath,
-        cwd: options.cwd,
       });
       if (res.cliUnavailable) {
         const err = new Error(res.message);
@@ -579,15 +606,25 @@ function overlayDescription(name, fallback) {
 // Commands the plugin refuses to surface, by command name or by the canonical
 // target of an alias (`stats:get` -> dashboard-stats).
 async function exclusionIndex(runOpts) {
-  const index = { names: new Set([].concat([...EXCLUDED_SERVICES], [...EXCLUDED_COMMANDS])), aliases: new Map() };
+  const index = {
+    names: new Set([].concat([...EXCLUDED_SERVICES], [...EXCLUDED_COMMANDS])),
+    aliases: new Map(),
+    // An alias maps to a canonical operation, and the canonical target is what
+    // decides whether it is excluded (`stats:get` -> dashboard-stats). Without
+    // that mapping an alias cannot be classified at all, so the index records
+    // the failure and every alias call is refused rather than let through.
+    aliasListLoaded: false,
+  };
   try {
     const aliases = await getAliases(runOpts);
     for (const alias of aliases.list) {
       if (alias && alias.alias) index.aliases.set(alias.alias, alias.canonical || '');
     }
     for (const name of aliases.excluded) index.names.add(name);
+    index.aliasListLoaded = true;
   } catch (_) {
-    // The alias list only refines the filter; discovery must not fail over it.
+    // A missing alias list must not take down discovery; it only closes the
+    // alias route (see the caller).
   }
   return index;
 }
@@ -706,8 +743,11 @@ async function listTools(params) {
     }
   }
   if (tokens[0] === 'auth') {
-    const known = new Set(AUTH_OPERATIONS.map((op) => op.name));
-    operations = AUTH_OPERATIONS.concat(operations.filter((op) => !known.has(op.name)));
+    // The two heads the worker orchestrates always exist; the ordinary auth
+    // commands are only advertised when this CLI actually has them, or the
+    // listing would offer a name call_tool then rejects as UNKNOWN_TOOL.
+    const listed = new Set(subcommands.map((child) => 'auth ' + child.name));
+    operations = AUTH_OPERATIONS.filter((op) => ORCHESTRATED_RISKS.has(op.name) || listed.has(op.name));
   }
 
   if (!subcommands.length && !operations.length) {
@@ -801,7 +841,7 @@ async function authLoginStart(params) {
   if (res.cliUnavailable) {
     return { ok: false, errorCode: res.cliErrorCode || 'CLI_NOT_INSTALLED', message: res.message };
   }
-  const env = parseEnvelope(res.stdout);
+  const env = parseEnvelope(res.stdout, res.stderr);
   const data = env && env.ok === true && env.data ? env.data : null;
   if (!data || !data.verification_url || !data.device_code) {
     return {
@@ -857,14 +897,20 @@ async function authLoginWait(params) {
       message: '授权仍在等待中(本次轮询已到时限,用户尚未完成)。可用同一个 login_handle 再次调用 auth login-wait 继续等待。',
     };
   }
-  const env = parseEnvelope(res.stdout);
+  const env = parseEnvelope(res.stdout, res.stderr);
   if (env && env.ok === true) {
     return { ok: true, data: { status: 'authorized' } };
   }
   return {
     ok: false,
     errorCode: 'LOGIN_WAIT_FAILED',
-    message: '授权未完成:' + briefFailure(res, env) + ';可重新调用 auth login-start 换新链接。',
+    // The device-code exchange may have completed (and the credential been
+    // stored) before the process exited non-zero, so the outcome is unknown
+    // rather than not-executed: check the login state before starting over.
+    execution_state: 'unknown',
+    message: '授权未完成:' + briefFailure(res, env)
+      + ';该轮询是否已经换到凭证无法确定:请先 call_tool(name:"auth status") 核对登录态,'
+      + '确认未登录后再调用 auth login-start 换新链接。',
   };
 }
 
@@ -903,16 +949,20 @@ const ORCHESTRATED_RISKS = new Map([
   ['auth login-wait', 'write'],
 ]);
 
-// Commands whose whole job is to print documentation: `help` prints a command's
-// reference, `skills` lists and reads the manuals embedded in the CLI. Neither
-// is an operation, so their own `--help` carries no `Risk:` line and the
-// fail-closed default would drag a doc dump through the confirmation gate.
-const DOCUMENTATION_HEADS = new Set(['help', 'skills']);
+// Command paths whose whole job is to print reference material: a command's
+// help and the two read-only `skills` subcommands. They are not operations, so
+// their own `--help` carries no `Risk:` line and the fail-closed default would
+// drag a doc dump through the confirmation gate. Keyed by the full path — a
+// `skills` subcommand that does something else goes through the ordinary risk
+// lookup instead of inheriting this exemption.
+const DOCUMENTATION_PATHS = new Set(['help', 'skills list', 'skills read']);
 
 // Heads whose positional operands are identifiers — a service and method, a
-// manual name, a profile, an event key, a task id, a URL — rather than local
-// files. Everything else that takes an operand is assumed to name a file, so
-// the workdir requirement below fails closed for a head this list has not met.
+// manual name, a command name, a profile, an event key, a task id, a URL —
+// rather than local files. Everything else that takes an operand is assumed to
+// name a file, so the workdir requirement below fails closed for a head this
+// list has not met. This is separate from the risk exemption above: a `skills`
+// subcommand still goes through the ordinary risk lookup.
 const IDENTIFIER_OPERAND_HEADS = new Set([
   'auth', 'event', 'help', 'profile', 'schema', 'skills', 'task',
 ]);
@@ -924,6 +974,10 @@ const IDENTIFIER_OPERAND_HEADS = new Set([
 // `skills list` from the bare `skills` container.
 async function riskPathTokens(runOpts, tokens, args) {
   const path = tokens.slice();
+  // `help` prints another command's documentation and executes nothing, but the
+  // CLI completes every command name as its "child" — so walking further would
+  // swallow the target command into the path and misreport the risk.
+  if (path[0] === 'help') return path;
   const positional = Array.isArray(args._positional) ? args._positional.map(String) : [];
   for (const item of positional) {
     if (!item || item.startsWith('-')) break;
@@ -1061,6 +1115,17 @@ async function callTool(params) {
   }
 
   const index = await exclusionIndex(runOpts);
+  // An alias whose canonical operation cannot be resolved is unclassifiable:
+  // it might be the very route into an excluded service, so it fails closed.
+  if (tokens[0].indexOf(':') >= 0 && !index.aliasListLoaded) {
+    return {
+      ok: false,
+      errorCode: 'CATALOG_UNAVAILABLE',
+      execution_state: 'not_executed',
+      message: '无法读取 CLI 的别名清单,因此无法确认 "' + tokens[0] + '" 指向的操作是否在本插件范围内;'
+        + '请稍后重试,或改用 list_tools() 列出的完整命令名。',
+    };
+  }
   if (index.names.has(tokens[0]) || isExcluded(index, tokens[0])) {
     return {
       ok: false,
@@ -1115,10 +1180,23 @@ async function callTool(params) {
   // unknown fails closed to a write, so the confirmation gate never silently
   // opens for a command nobody could classify.
   let risk = null;
+  let riskTokens = tokens;
   if (ORCHESTRATED_RISKS.has(name)) {
     risk = ORCHESTRATED_RISKS.get(name);
-  } else if (DOCUMENTATION_HEADS.has(tokens[0])) {
+  } else {
+    try {
+      riskTokens = await riskPathTokens(runOpts, tokens, args);
+    } catch (err) {
+      if (err && err.code) return catalogFailure(err);
+    }
+  }
+  const pathKey = riskTokens.join(' ');
+  const referenceOnly = DOCUMENTATION_PATHS.has(pathKey);
+  if (referenceOnly) {
+    // Printing documentation is the whole of what these paths do.
     risk = 'read';
+  } else if (ORCHESTRATED_RISKS.has(name)) {
+    risk = ORCHESTRATED_RISKS.get(name);
   } else if (alias) {
     try {
       const services = await getCatalog(runOpts);
@@ -1139,7 +1217,7 @@ async function callTool(params) {
     }
     if (!risk) {
       try {
-        risk = await helpRisk(runOpts, await riskPathTokens(runOpts, tokens, args));
+        risk = await helpRisk(runOpts, riskTokens);
       } catch (err) {
         if (err && err.code) return catalogFailure(err);
         risk = null;
@@ -1161,14 +1239,19 @@ async function callTool(params) {
   const helpOnly = args._help === true;
   // The workdir check runs before the confirmation gate: a call that cannot run
   // here at all should say so, rather than ask the user to approve it first.
-  // Only heads that can actually name a local file need the confinement root.
-  if (!helpOnly && !IDENTIFIER_OPERAND_HEADS.has(tokens[0]) && needsLocalFiles(args) && !runOpts.cwd) {
+  // Only heads that can actually name a local file need the confinement root,
+  // and it has to be usable — a directory that was deleted or unmounted since
+  // the session started is no root at all.
+  const workdirUsable = Boolean(runOpts.cwd) && fs.existsSync(runOpts.cwd);
+  const noFileOperands = referenceOnly || IDENTIFIER_OPERAND_HEADS.has(tokens[0]);
+  if (!helpOnly && !noFileOperands && needsLocalFiles(args) && !workdirUsable) {
     return {
       ok: false,
       errorCode: 'WORKDIR_REQUIRED',
       execution_state: 'not_executed',
-      message: '该调用包含本地文件参数,但当前会话没有可用的本地工作目录;'
-        + 'CLI 以会话工作目录为基准限定文件路径,没有它就无法安全执行。请在带本地工作目录的会话里重试。',
+      message: '该调用包含本地文件参数,但当前会话没有可用的本地工作目录'
+        + (runOpts.cwd ? '(' + runOpts.cwd + ' 不存在或已卸载)' : '')
+        + ';CLI 以会话工作目录为基准限定文件路径,没有它就无法安全执行。请在带本地工作目录的会话里重试。',
     };
   }
   if (!helpOnly && risk !== 'read' && args.yes !== true && args.dry_run !== true) {
@@ -1212,7 +1295,7 @@ async function callTool(params) {
     cwd: runOpts.cwd,
   });
 
-  const env = parseEnvelope(res.stdout);
+  const env = parseEnvelope(res.stdout, res.stderr);
   // Every failure path states whether the operation reached the server, because
   // several external operations here (uploads, review submission, publishing)
   // cannot be undone. Not-run is safe to retry; unknown must be checked first.
@@ -1269,13 +1352,15 @@ async function callTool(params) {
     const state = (err && !ambiguous) ? 'not_executed' : unknownForWrite;
     return {
       ok: false,
-      errorCode: 'CLI_FAILED',
+      // The envelope says the operation was refused; without one, all the CLI
+      // told us is that it exited non-zero.
+      errorCode: err ? 'BUSINESS_ERROR' : 'CLI_FAILED',
       exit_code: res.code,
       execution_state: state,
       message: briefFailure(res, env) + (state === 'unknown'
         ? ';该写操作是否已在服务端生效不确定:请先核对实际状态再决定是否重试,不要直接重跑。'
         : ''),
-      data: env || { raw: clip(res.stdout, 20 * 1024) },
+      data: env || { raw: clip(res.stdout + res.stderr, 20 * 1024) },
     };
   }
   return {

@@ -45,6 +45,7 @@ const FIXTURE_TREE = {
   ],
   app: [
     ['+bind-spark-version', 'Bind a Spark version'],
+    ['fail-op', 'Always fails with a structured error'],
     ['+list', 'List games visible under a developer account'],
     ['create-app', 'Create a game draft'],
     ['submit-app-review', 'Submit app edit for review'],
@@ -62,6 +63,7 @@ const FIXTURE_TREE = {
   skills: [
     ['list', 'List the embedded manuals'],
     ['read', 'Read one embedded manual'],
+    ['status', 'Show embedded skills and sync records'],
   ],
   task: [
     ['+get', 'Show one upload task'],
@@ -74,7 +76,6 @@ const FIXTURE_TREE = {
   ],
   auth: [
     ['logout', 'Clear the local credential'],
-    ['qrcode', 'Generate an authorization QR code'],
     ['status', 'Show the current login state'],
   ],
 };
@@ -99,7 +100,7 @@ const FIXTURE_RISK = {
   'task +get': 'read',
   'profile use': 'write',
   'auth logout': 'write',
-  'auth qrcode': 'read',
+  'app fail-op': 'write',
 };
 
 const FIXTURE_SCHEMA = [
@@ -145,7 +146,14 @@ if (args.length && args[args.length - 1] === '--help') {
   process.exit(0);
 }
 if (args[0] === 'schema') { write(JSON.stringify({ ok: true, data: schema })); process.exit(0); }
-if (args[0] === 'aliases') { write(JSON.stringify({ ok: true, data: { aliases } })); process.exit(0); }
+if (args[0] === 'aliases') {
+  if (process.env.FIXTURE_ALIASES_FAIL) { write('alias listing unavailable'); process.exit(2); }
+  write(JSON.stringify({ ok: true, data: { aliases } })); process.exit(0);
+}
+if (args[1] === 'fail-op') {
+  process.stderr.write(JSON.stringify({ ok: false, error: { type: 'validation', subtype: 'invalid_argument', message: 'nope', hint: 'fix it' } }));
+  process.exit(2);
+}
 write(JSON.stringify({ ok: true, data: { echo: args, workdir: process.cwd() } }));
 `;
 
@@ -179,10 +187,11 @@ function shippedFiles() {
 // Spawn one worker for a batch of calls. The worker answers asynchronously —
 // two calls in flight finish in whichever order the CLI does — so each request
 // gets its own id and the replies come back matched to it, not in arrival order.
-function callWorker(requests) {
+function callWorker(requests, options) {
   const pending = requests.map((request, index) => ({ ...request, id: index + 1 }));
+  const env = Object.assign({}, process.env, (options && options.env) || {});
   return new Promise((resolve, reject) => {
-    const child = spawn(process.execPath, [workerPath], { stdio: ['pipe', 'pipe', 'pipe'] });
+    const child = spawn(process.execPath, [workerPath], { stdio: ['pipe', 'pipe', 'pipe'], env });
     let buffer = '';
     const byId = new Map();
     const timer = setTimeout(() => {
@@ -308,9 +317,83 @@ test('local file arguments are confined by the CLI, rooted at the session workdi
   // symlinks — stronger than a check here, and it can never drift from the
   // flags it ships. What the worker owes that check is the directory to resolve
   // against; without a session workdir there is no root, so the call is refused.
-  assert.match(workerSource, /cwd: options\.cwd && fs\.existsSync\(options\.cwd\) \? options\.cwd : undefined/);
+  // The root is passed through as-is; usability is checked before this point
+  // (runBinary refuses an unusable one rather than falling back).
+  assert.match(workerSource, /cwd: options\.cwd \|\| undefined/);
   const [reply] = await callWorker([
     callTool('materials', { cli_path: fakeCli, args: { _positional: ['+inspect', 'dir'] } }),
+  ]);
+  assert.equal(reply.result.ok, false);
+  assert.equal(reply.result.errorCode, 'WORKDIR_REQUIRED');
+});
+
+test('a CLI failure envelope is read from stderr and reported as a business error', async () => {
+  // The CLI writes its envelope to stdout on success and to stderr on failure,
+  // so a reader that only looks at stdout turns every structured error into a
+  // raw text blob — losing error.type/hint and the handles a partial failure
+  // may have created.
+  const [reply] = await callWorker([
+    callTool('app fail-op', { cli_path: fakeCli, args: { yes: true } }),
+  ]);
+  assert.equal(reply.result.ok, false);
+  assert.equal(reply.result.errorCode, 'BUSINESS_ERROR');
+  assert.equal(reply.result.execution_state, 'not_executed');
+  assert.equal(reply.result.data.error.type, 'validation');
+  assert.match(reply.result.message, /fix it/);
+});
+
+test('an unreadable alias list closes the alias route', async () => {
+  // An alias is classified by its canonical target (`stats:get` ->
+  // dashboard-stats, which is excluded). Without the mapping it cannot be
+  // classified at all, so the call must fail closed rather than run.
+  const [reply] = await callWorker(
+    [callTool('stats:get', { cli_path: fakeCli })],
+    { env: { FIXTURE_ALIASES_FAIL: '1' } },
+  );
+  assert.equal(reply.result.ok, false);
+  assert.equal(reply.result.errorCode, 'CATALOG_UNAVAILABLE');
+});
+
+test('only the read-only skills paths skip risk resolution', async () => {
+  // `skills list` / `skills read` print documentation and are read by
+  // definition. Any other subcommand — a future one the CLI may add — goes
+  // through the ordinary lookup, which fails closed when nothing classifies it.
+  const [listed, other] = await callWorker([
+    callTool('skills', { cli_path: fakeCli, args: { _positional: ['read', 'taptap-materials'] } }),
+    callTool('skills', { cli_path: fakeCli, args: { _positional: ['status'] } }),
+  ]);
+  assert.equal(listed.result.ok, true);
+  assert.equal(other.result.errorCode, 'CONFIRM_REQUIRED');
+});
+
+test('the auth listing offers only what this CLI exposes', async () => {
+  // The worker-orchestrated pair always exists; the ordinary auth commands are
+  // advertised only when the installed CLI has them, or the listing would offer
+  // a name call_tool then rejects.
+  const [reply] = await callWorker([listTools('auth', { cli_path: fakeCli })]);
+  const names = reply.result.data.operations.map((op) => op.name).sort();
+  assert.deepEqual(names, ['auth login-start', 'auth login-wait', 'auth logout', 'auth status']);
+});
+
+test('a workdir that no longer exists is refused, not replaced', async () => {
+  // The host hands over a session directory; if it is deleted or unmounted the
+  // CLI must not run anyway, or `./file` would resolve against whatever
+  // directory the worker happens to sit in — outside the authorized workspace.
+  assert.match(workerSource, /if \(options\.cwd && !fs\.existsSync\(options\.cwd\)\)/,
+    'an unusable workdir must be refused, not dropped');
+  assert.doesNotMatch(
+    workerSource,
+    /cwd: options\.cwd && fs\.existsSync\(options\.cwd\) \? options\.cwd : undefined/,
+    'the silent fallback to the worker directory must be gone',
+  );
+
+  const gone = path.join(fs.realpathSync(process.env.TMPDIR || '/tmp'), 'taptap-workdir-that-does-not-exist');
+  const [reply] = await callWorker([
+    callTool('materials', {
+      cli_path: fakeCli,
+      workdir: gone,
+      args: { _positional: ['+inspect', './package.json'] },
+    }),
   ]);
   assert.equal(reply.result.ok, false);
   assert.equal(reply.result.errorCode, 'WORKDIR_REQUIRED');
@@ -756,11 +839,17 @@ test('a write that fails ambiguously is reported as unknown, never as failed', (
   // all leave a write already applied on the server. Those paths must say so
   // and must not invite a blind retry.
   assert.match(workerSource, /const unknownForWrite = isWrite \? 'unknown' : 'not_executed';/);
-  for (const code of ['TIMEOUT', 'RESULT_TOO_LARGE', 'CLI_FAILED']) {
+  for (const code of ['TIMEOUT', 'RESULT_TOO_LARGE']) {
     const block = workerSource.slice(workerSource.indexOf(`errorCode: '${code}'`));
     assert.match(block.slice(0, 400), /execution_state: (?:unknownForWrite|state)/,
       `${code} must declare an execution state`);
   }
+  // A structured CLI refusal and a bare non-zero exit are different reports,
+  // and the envelope that distinguishes them arrives on stderr.
+  assert.match(workerSource, /parseEnvelope\(res\.stdout, res\.stderr\)/,
+    'the failure envelope is written to stderr and must be read from there');
+  assert.match(workerSource, /errorCode: err \? 'BUSINESS_ERROR' : 'CLI_FAILED'/,
+    'the envelope decides the code, the exit status is the fallback');
   assert.match(workerSource, /不要直接重跑/, 'an unknown outcome must tell the agent to verify before retrying');
 
   // A structured CLI error is usually the CLI deciding the outcome (not
