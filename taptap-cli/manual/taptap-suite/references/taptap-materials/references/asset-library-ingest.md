@@ -6,26 +6,20 @@
 
 ## 本地图片
 
-本地图片的上传执行归 `taptap-materials`（顶层 `taptap-cli upload`，支持 `--dry-run` 预览与 `--yes` 确认，图片需稳定 `--idempotency-key`）。上传成功后使用返回的 `data.url`、`data.assetId` 和完整 `data.info`（含 `width`、`height`、`size`、`format`）继续素材库语境的解读。asset ID 只表示素材库收录结果，不表示图片已写入资料字段；不要重复调用 `ingest-image-to-assets`。
+本地图片的上传执行归 `taptap-materials`（即 `call_tool(name:"upload", …)`，支持 `dry_run:true` 预览与 `yes:true` 确认，图片需稳定 `idempotency_key`）。上传成功后使用返回的 `data.url`、`data.assetId` 和完整 `data.info`（含 `width`、`height`、`size`、`format`）继续素材库语境的解读。asset ID 只表示素材库收录结果，不表示图片已写入资料字段；不要重复调用 `ingest-image-to-assets`。
 
 ## HTTPS 图片
 
 已有可访问的 HTTPS 图片使用素材库收录命令。写入前可先预览：
 
-```bash
-taptap-cli asset-library ingest-image-to-assets \
-  --app-id <appId> --dev-id <developerId> \
-  --data '{"image_url":"https://example.com/image.png"}' \
-  --idempotency-key <intent-key> --dry-run
+```text
+call_tool(name:"asset-library ingest-image-to-assets", args:{app_id:"<appId>", developer_id:"<developerId>", data:{image_url:"https://example.com/image.png"}, idempotency_key:"<intent-key>", dry_run:true})
 ```
 
 确认目标 App 和 URL 后执行真实命令：
 
-```bash
-taptap-cli asset-library ingest-image-to-assets \
-  --app-id <appId> --dev-id <developerId> \
-  --data '{"image_url":"https://example.com/image.png"}' \
-  --idempotency-key <stable-key> --yes
+```text
+call_tool(name:"asset-library ingest-image-to-assets", args:{app_id:"<appId>", developer_id:"<developerId>", data:{image_url:"https://example.com/image.png"}, idempotency_key:"<stable-key>", yes:true})
 ```
 
 收录后处于处理中是正常状态；如果用户要立即检索，说明该图片可能暂时不会作为推荐项。
@@ -47,21 +41,18 @@ taptap-cli asset-library ingest-image-to-assets \
 
 先读取规则并生成计划：
 
-```bash
-taptap-cli asset-library ai-image +rules
-taptap-cli asset-library ai-image +plan \
-  --rule <rule> --prompt "<creative brief>" --context "<game context>" \
-  --count 3
+```text
+call_tool(name:"asset-library ai-image +rules")
+call_tool(name:"asset-library ai-image +plan", args:{rule:"<rule>", prompt:"<creative brief>", context:"<game context>", count:3})
 ```
 
 默认输出根目录为 `.taptap/ai-image/<run-id>`，`candidates/` 是 CLI 约定的本地候选文件子目录，不是 TapTap 官方目录，也不是素材库接口要求。模型必须把实际 PNG/JPEG 文件写入计划指定的 `<output-dir>/candidates/` 目录。可用 `+plan --output-dir <directory>` 定制输出根目录；该目录须通过 CLI 的本地安全路径校验，不能借此写入工作目录之外的路径。生成后对同一个输出根目录执行：
 
-```bash
-taptap-cli asset-library ai-image +validate .taptap/ai-image/<run-id> \
-  --rule <rule> --format json
+```text
+call_tool(name:"asset-library ai-image +validate", args:{_positional:[".taptap/ai-image/<run-id>"], rule:"<rule>"})
 ```
 
-校验成功会写出本地 `manifest.json`，其中包含候选文件、规则结果、`upload_pending=true` 和完整的 `taptap-cli upload` 命令。校验失败返回验证失败退出码，不写 manifest，不上传；必须先让用户确认候选图和上传意图，确认后转 `taptap-materials` 执行上传。
+校验成功会写出本地 `manifest.json`，其中包含候选文件、规则结果、`upload_pending=true` 和完整的 `upload` 调用参数。校验失败返回验证失败退出码，不写 manifest，不上传；必须先让用户确认候选图和上传意图，确认后转 `taptap-materials` 执行上传。
 
 `candidates/` 仅用于隔离待审核的本地候选文件；用户也可以使用其他合法的输出根目录，但不能把该目录解释成平台素材库目录或已上传状态。
 

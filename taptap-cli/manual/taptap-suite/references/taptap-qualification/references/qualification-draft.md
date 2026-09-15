@@ -8,29 +8,23 @@
 
 1. 先确定 `qualification_type`，再读取当前 schema：
 
-   ```bash
-   taptap-cli schema qualification save-qualification-draft
+   ```text
+   call_tool(name:"schema", args:{_positional:["qualification","save-qualification-draft"]})
    ```
 
 2. 按 [qualification materials](taptap-suite/references/taptap-qualification/references/qualification-materials.md) 构造输入。`qualification.kind` 必须和 `qualification_type` 一致，只传当前 schema 中的稳定字段。
-3. 只有图片型材料需要先取得 HTTPS URL：图片上传由 `taptap-materials` 执行（顶层 `taptap-cli upload`，成功自动收录素材库），拿到返回的 `data.url` 后再构造 draft 输入。版号、授权书、安全评估等 PDF 或其他非图片文件不走图片上传；当前 CLI 没有通用文件上传命令，应使用已有 HTTPS 文件 URL 或开发者后台页面完成上传。
+3. 只有图片型材料需要先取得 HTTPS URL：图片上传由 `taptap-materials` 执行（即 `call_tool(name:"upload", …)`，成功自动收录素材库），拿到返回的 `data.url` 后再构造 draft 输入。版号、授权书、安全评估等 PDF 或其他非图片文件不走图片上传；当前 CLI 没有通用文件上传命令，应使用已有 HTTPS 文件 URL 或开发者后台页面完成上传。
 
 4. 先预览再写入：
 
-   ```bash
-   taptap-cli qualification save-qualification-draft \
-     --app-id <appId> --dev-id <developerId> \
-     --data @qualification-draft.json \
-     --idempotency-key <draft-key> --dry-run
+   ```text
+   call_tool(name:"qualification save-qualification-draft", args:{app_id:"<appId>", developer_id:"<developerId>", data:"@qualification-draft.json", idempotency_key:"<draft-key>", dry_run:true})
    ```
 
    用户确认后执行真实写入，并追加 `--yes`：
 
-   ```bash
-   taptap-cli qualification save-qualification-draft \
-     --app-id <appId> --dev-id <developerId> \
-     --data @qualification-draft.json \
-     --idempotency-key <same-draft-key> --yes
+   ```text
+   call_tool(name:"qualification save-qualification-draft", args:{app_id:"<appId>", developer_id:"<developerId>", data:"@qualification-draft.json", idempotency_key:"<same-draft-key>", yes:true})
    ```
 
 ## 结果分流

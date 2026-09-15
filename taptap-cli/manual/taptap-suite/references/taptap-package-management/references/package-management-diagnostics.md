@@ -31,7 +31,7 @@
 6. APK 自测：传 `{"package_type":"apk","include_scenes":true}` 查 overview；若返回 `self_test_mode=guide`，围绕返回场景做状态说明和页面入口。
 7. 小游戏 / H5 / TapTap 制造自测二维码：只有用户选择这些类型，或明确说“自测二维码 / 测试二维码”时，才进入二维码流程。已确定类型后，使用 `get-package-overview` 返回的 `self_test_targets` 作为候选：小游戏只会包含“开发版本”；审核版本和线上版本没有小游戏自测二维码入口。H5 选择目标 H5 版本；TapTap 制造选择目标版本号。若二维码接口返回目标不可用，按工具结果提示用户重新选择版本。
 8. 调用 `get-test-qr-code` 时优先把 overview 中选定的完整目标作为 `self_test_target` 传入。只有一个目标时可直接使用；多个目标时先让用户按标签选择。`package_type` 和 `version_code` 只用于兼容旧调用。
-9. `get-test-qr-code`（动态命令，JSON）负责拿 `qrcode_uri` / `qr_code_url` 和确认目标；拿到后必须调用顶层 `taptap-cli test-qr-code --output <file>.png --json`（`--data` 是扁平 `{"kind":...,"package_type":...,"package_id":...}`）生成 PNG 二维码，并把返回的 `data.file_path` 作为图片附件展示给用户扫码。Codex 会折叠命令行输出，不能把命令输出本身当作二维码交付。`view_image`、`Viewed Image`、工具输出里的图片预览都只对 Agent 可见，不算用户收到二维码。不要只输出 `qrcode_uri` / `qr_code_url`、只给文件路径或说“二维码已展示”。动态命令不在本地补造二维码图片字段。
+9. `get-test-qr-code`（动态命令，JSON）负责拿 `qrcode_uri` / `qr_code_url` 和确认目标；拿到后必须调用 `call_tool(name:"test-qr-code", args:{data:{kind:"...", package_type:"...", package_id:"..."}, output:"<file>.png"})` 生成 PNG 二维码（`output` 是相对会话工作目录的文件路径），并把返回的 `data.file_path` 作为图片附件展示给用户扫码。Codex 会折叠命令行输出，不能把命令输出本身当作二维码交付。`view_image`、`Viewed Image`、工具输出里的图片预览都只对 Agent 可见，不算用户收到二维码。不要只输出 `qrcode_uri` / `qr_code_url`、只给文件路径或说“二维码已展示”。动态命令不在本地补造二维码图片字段。
 10. 调 `get-test-qr-code` 失败时，只说明失败原因或下一步要求，不要要求用户提供内部参数名。
 
 ### D. TapTap 制造包体边界

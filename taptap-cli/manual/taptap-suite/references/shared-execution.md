@@ -6,14 +6,15 @@
 
 优先使用当前 CLI 的实时输出，不依赖旧文档缓存：
 
-```bash
-taptap-cli skills list
-taptap-cli app --help
-taptap-cli schema
-taptap-cli schema <service> <method>
+```text
+list_tools()                                                    # 顶层命令
+list_tools(category:"<命令路径>")                                # 逐层下钻;叶子命令会返回它接受的 flag
+call_tool(name:"skills", args:{_positional:["list"]})          # CLI 内置手册清单
+call_tool(name:"<命令>", args:{_help:true})                     # 某命令的完整帮助
+call_tool(name:"schema", args:{_positional:[service, method]}) # 某操作的完整输入输出 schema
 ```
 
-`schema` 只描述服务命令；其他命令的参数使用完整命令路径加 `--help` 查看。`schema` 会在 metadata 缓存到期时做一次最多 5 秒的刷新，并在服务不可用时继续使用 embedded/cache；各 service 的 `--help` 反映当前进程启动快照。真实 operation 执行前若发现更新后的 catalog，CLI 会停止并要求重跑，避免按旧的字段或风险策略发请求。Skill 负责流程编排，不能补造 metadata 未声明的 operation、字段或副作用。
+`schema` 只描述服务命令；其他命令的参数用 `args._help:true` 查看。`schema` 会在 metadata 缓存到期时做一次最多 5 秒的刷新，并在服务不可用时继续使用 embedded/cache；各 service 的 `--help` 反映当前进程启动快照。真实 operation 执行前若发现更新后的 catalog，CLI 会停止并要求重跑，避免按旧的字段或风险策略发请求。Skill 负责流程编排，不能补造 metadata 未声明的 operation、字段或副作用。
 
 ## JSON 输入和输出
 
@@ -102,7 +103,7 @@ metadata 命令只要暴露 `--idempotency-key`，预览和真实写入都必须
 
 1. 先说明用户现在要做的动作，再给入口；不要只说“CLI 暂不支持”并等待用户追问链接。
 2. URL 单独占一行且只展示一次。不要使用 `[名称](URL)`、`URL (URL)` 等 Markdown 或括号包装，也不要在同一回复的标题、正文和列表中重复同一 URL。
-3. URL 使用 CLI 当前环境或本次服务端响应提供的原始地址；不要追加 `utm_*` 等追踪参数，也不要为了找已知官方入口调用网页搜索。当前环境未知时，可用 `taptap-cli auth status --offline --json` 只读取得 `data.serverUrl`，不要为解析入口验证 Token 或访问网络。
+3. URL 使用 CLI 当前环境或本次服务端响应提供的原始地址；不要追加 `utm_*` 等追踪参数，也不要为了找已知官方入口调用网页搜索。当前环境未知时，可用 `call_tool(name:"auth status", args:{offline:true})` 只读取得 `data.serverUrl`，不要为解析入口验证 Token 或访问网络。
 4. 服务端本次返回完整 `page_url` 时原样使用。只返回非空 `page_path` 时，按当前开发者中心 `serverUrl` 补全域名并保持路径不变。
 5. 固定且已确认的官方入口可以直接提供；没有可靠入口时明确说明“当前没有可确认的页面链接”，不要猜路径、搜索替代入口或把内部 API 地址当成用户页面。
 6. 提供入口不等于已经打开页面、切换网页 scope 或获得浏览器自动化授权；只有用户明确要求时才执行页面操作。
@@ -116,7 +117,7 @@ metadata 命令只要暴露 `--idempotency-key`，预览和真实写入都必须
 
 ### 运营阶段手册交接
 
-游戏完成资料提审、测试计划创建/重开、首次正式上线或普通版本更新后的 handoff，按**已确认的运营阶段**补充一个最匹配的官方手册。识别前完整读取 [运营阶段识别与官方手册](taptap-suite/references/operation-handbooks.md)，并通过 `taptap-cli skills read taptap-cli references/sources/operation-handbooks/manifest.json` 读取当前 CLI 内置的手册标题、URL 和官方页面描述。
+游戏完成资料提审、测试计划创建/重开、首次正式上线或普通版本更新后的 handoff，按**已确认的运营阶段**补充一个最匹配的官方手册。识别前完整读取 [运营阶段识别与官方手册](taptap-suite/references/operation-handbooks.md)，并通过 `call_tool(name:"skills", args:{_positional:["read","taptap-cli","references/sources/operation-handbooks/manifest.json"]})` 读取当前 CLI 内置的手册标题、URL 和官方页面描述。
 
 每次最多给一个手册，不要把多个阶段链接全部列给用户。先根据状态证据说明为什么适合当前阶段，再把 manifest 的 `description` 压缩成一句话，最后按本节人工页面规范将 `url` 单独输出一行且只展示一次。不能只凭版本数值状态映射运营阶段；审核中不代表测试期，已上线也不必然是首次上线。各阶段的充分证据、明确排除与完整历史门禁以 [运营阶段识别与官方手册](taptap-suite/references/operation-handbooks.md)「识别顺序」为唯一正本；来源清单缺失、历史不完整或证据冲突时选择 `unknown`，不要猜阶段或补造描述。
 

@@ -8,20 +8,15 @@
 
 1. 先准备并检查指定资质：
 
-   ```bash
-   taptap-cli qualification precheck-qualification \
-     --app-id <appId> --dev-id <developerId> \
-     --data '{"qualification_type":"<type>"}'
+   ```text
+   call_tool(name:"qualification precheck-qualification", args:{app_id:"<appId>", developer_id:"<developerId>", data:{qualification_type:"<type>"}})
    ```
 
 2. 只有返回 `can_submit=true` 才进入确认。向用户展示资质类型、审核范围、阻塞项和影响，只给业务结论，不原样输出 `can_submit`、`source` 等机器字段。
 3. 用户明确确认后执行：
 
-   ```bash
-   taptap-cli qualification submit-qualification \
-     --app-id <appId> --dev-id <developerId> \
-     --data '{"qualification_type":"<type>"}' \
-     --idempotency-key <submit-key> --yes
+   ```text
+   call_tool(name:"qualification submit-qualification", args:{app_id:"<appId>", developer_id:"<developerId>", data:{qualification_type:"<type>"}, idempotency_key:"<submit-key>", yes:true})
    ```
 
 4. 完成后重新调用 `analyze-qualification-status` 验证状态。
@@ -30,20 +25,15 @@
 
 1. 先检查指定资质：
 
-   ```bash
-   taptap-cli qualification preview-qualification-withdrawal \
-     --app-id <appId> --dev-id <developerId> \
-     --data '{"qualification_type":"<type>"}'
+   ```text
+   call_tool(name:"qualification preview-qualification-withdrawal", args:{app_id:"<appId>", developer_id:"<developerId>", data:{qualification_type:"<type>"}})
    ```
 
 2. 展示工具返回的撤回范围。若结果指出是旧版整单审核，必须明确说明撤回的是整单而非单项。
 3. 用户确认范围后执行：
 
-   ```bash
-   taptap-cli qualification withdraw-qualification \
-     --app-id <appId> --dev-id <developerId> \
-     --data '{"qualification_type":"<type>"}' \
-     --idempotency-key <withdraw-key> --yes
+   ```text
+   call_tool(name:"qualification withdraw-qualification", args:{app_id:"<appId>", developer_id:"<developerId>", data:{qualification_type:"<type>"}, idempotency_key:"<withdraw-key>", yes:true})
    ```
 
 4. 完成后重新调用 `analyze-qualification-status` 验证状态。

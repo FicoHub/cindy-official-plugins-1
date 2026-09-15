@@ -8,25 +8,19 @@
 
 单场景：
 
-```bash
-taptap-cli asset-library search-assets \
-  --app-id <appId> --dev-id <developerId> \
-  --data '{"target_scene":"ICON"}'
+```text
+call_tool(name:"asset-library search-assets", args:{app_id:"<appId>", developer_id:"<developerId>", data:{target_scene:"ICON"}})
 
-taptap-cli asset-library search-assets \
-  --app-id <appId> --dev-id <developerId> \
-  --data '{"target_scene":"ICON","exclude_asset_ids":["123"]}'
+call_tool(name:"asset-library search-assets", args:{app_id:"<appId>", developer_id:"<developerId>", data:{target_scene:"ICON", exclude_asset_ids:["123"]}})
 ```
 
 批量：
 
-```bash
-taptap-cli asset-library batch-search-assets \
-  --app-id <appId> --dev-id <developerId> \
-  --data '{"target_scenes":["HEADER_BANNER","ICON","WINDOWS_LOGO"]}'
+```text
+call_tool(name:"asset-library batch-search-assets", args:{app_id:"<appId>", developer_id:"<developerId>", data:{target_scenes:["HEADER_BANNER","ICON","WINDOWS_LOGO"]}})
 ```
 
-场景枚举以 `taptap-cli schema asset-library search-assets` 为准。常见值包括：
+场景枚举以 `call_tool(name:"schema", args:{_positional:["asset-library","search-assets"]})` 返回的 schema 为准。常见值包括：
 
 - `ICON`
 - `HEADER_BANNER`

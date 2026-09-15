@@ -2,8 +2,8 @@
 
 本文件定义游戏 handoff 的运营阶段识别顺序。手册标题、URL 和官方页面描述不在本文件重复维护；每次需要输出时读取随当前 CLI 版本内置的来源清单：
 
-```bash
-taptap-cli skills read taptap-cli references/sources/operation-handbooks/manifest.json
+```text
+call_tool(name:"skills", args:{_positional:["read","taptap-cli","references/sources/operation-handbooks/manifest.json"]})
 ```
 
 从 `sources[]` 中选择 `source.stage` 与阶段 ID 相同的唯一条目，使用其 `title`、`url` 和 `description`；其中 `unknown` 对应 `id=overview` 的快速入门总览。`description` 来自官方页面的 `meta[name=description]`；面向用户压缩成一句话，但不得新增文档没有承诺的固定曝光、推荐位或流量结果。来源清单读取失败或找不到唯一条目时，停止生成描述并报告包内来源缺口，不从记忆、搜索或相邻手册补造。
@@ -24,8 +24,8 @@ taptap-cli skills read taptap-cli references/sources/operation-handbooks/manifes
 
 首次上线和长线运营的判断必须使用完整版本历史。优先执行：
 
-```bash
-taptap-cli app list-app-versions --app-id <appId> --dev-id <developerId> --page-all
+```text
+call_tool(name:"app list-app-versions", args:{app_id:"<appId>", developer_id:"<developerId>", page_all:true})
 ```
 
 若分页被 `--page-limit` 截断、返回条目数无法覆盖 `result.total`、任一 item 的 `status` 为 `unknown` 且没有可解释日志，均视为历史不完整，阶段回退 `unknown`。统计发布历史时按 `version` 去重：同一版本同时出现 `status=online` 和 `logs[].event=published` 只算一个已发布版本。

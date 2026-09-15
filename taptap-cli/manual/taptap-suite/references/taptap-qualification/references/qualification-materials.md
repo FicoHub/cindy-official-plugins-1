@@ -10,8 +10,8 @@
 
 本文件只用于构造 `save-qualification-draft` 输入。最终字段和枚举始终以当前命令为准：
 
-```bash
-taptap-cli schema qualification save-qualification-draft
+```text
+call_tool(name:"schema", args:{_positional:["qualification","save-qualification-draft"]})
 ```
 
 ## 资质类型

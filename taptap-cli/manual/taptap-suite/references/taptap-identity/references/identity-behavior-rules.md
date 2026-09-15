@@ -5,9 +5,10 @@
 用户表达"切到 X 厂商 / 切到 Y 游戏 / 帮我打开另一个 app"时：
 1. 不要把本地凭证绑定或事件上下文当成 CLI scope 选择器；scope 通过
    `developer`、`app` 命令的参数显式选择。
-2. 用 `taptap-cli developer +list` 或 `taptap-cli app +list --dev-id <developerId> --kw "<keyword>"` 找到目标。
-3. 用 `taptap-cli developer +enter --dev-id <developerId>` 或
-   `taptap-cli app +select --dev-id <developerId> --app-id <appId>` 校验并保存 CLI scope。
+2. 用 `call_tool(name:"developer +list")` 或 `call_tool(name:"app +list", args:{dev_id:"<developerId>", kw:"<keyword>"})` 找到目标。
+3. 用 `call_tool(name:"developer +enter", args:{dev_id:"<developerId>"})` 或
+   `call_tool(name:"app +select", args:{dev_id:"<developerId>", app_id:"<appId>"})` 校验并保存 CLI scope。
+   这两条会改写本机 CLI 配置，CLI 把它们标为 write：先说明再取得用户同意，然后加 `yes:true` 执行。
    保存后，后续命令可以省略对应 ID；显式传入的 ID 始终优先。
 4. 可选地输出本次 `app +list` / `overview` 每个游戏的资料页入口供人工查看：优先使用返回的 `page_url`，缺失时使用 CLI 根据已确认 `developerId` 和 `appId` 推导的规范地址。打开页面不会改变 CLI scope，也不会让下一条消息自动继承页面 scope；
    不要把页面跳转当成 CLI 切换，也不要声称已切换网页状态。
@@ -19,7 +20,7 @@
 用户说“帮我创建新的厂商”“注册厂商”“申请厂商”或“入驻开发者”时，这是人工入驻入口请求，不是已有厂商候选查询：
 
 1. 不要先运行 `developer +list`，也不要只回复 CLI 不支持。
-2. 已知当前环境 `serverUrl` 时直接使用；未知时运行 `taptap-cli auth status --offline --json` 读取 `data.serverUrl`，不检查 Token 或访问网络。
+2. 已知当前环境 `serverUrl` 时直接使用；未知时用 `call_tool(name:"auth status", args:{offline:true})` 读取 `data.serverUrl`，不检查 Token 或访问网络。
 3. 首轮按两行输出，链接后再说明 CLI 不能代为提交主体资料和资质审核：
 
    ```text
@@ -34,18 +35,18 @@
 global scope 表示当前会话没有选定厂商或应用。不要把它解释成某个业务的“账号维度”或“全部资源”范围；具体业务 pack 是否可用，以 `loadPack` catalog 和该 pack 自己的 scope 规则为准。
 
 需要应用上下文的业务操作仍需引导：
-1. 先用 `taptap-cli developer +list` 列出厂商
-2. 让用户选一个厂商，再用 `taptap-cli app +list --dev-id <developerId> --page-all --page-size 50` 列出游戏
-3. 用 `taptap-cli developer +enter --dev-id <developerId>` 或
-   `taptap-cli app +select --dev-id <developerId> --app-id <appId>` 保存 CLI scope；
+1. 先用 `call_tool(name:"developer +list")` 列出厂商
+2. 让用户选一个厂商，再用 `call_tool(name:"app +list", args:{dev_id:"<developerId>", page_all:true, page_size:50})` 列出游戏
+3. 用 `call_tool(name:"developer +enter", args:{dev_id:"<developerId>"})` 或
+   `call_tool(name:"app +select", args:{dev_id:"<developerId>", app_id:"<appId>"})` 保存 CLI scope（写操作，需用户确认）；
    页面链接只能作为可选的人工查看入口。
 
 ### 关于 developer scope
 
 developer scope 下你知道 `developerId`，但没有选定具体应用。需要 `appId` 的业务操作仍需引导用户打开目标 app 页面；具体业务 pack 是否在 developer scope 可用，以 `loadPack` catalog 和该 pack 自己的 scope 规则为准。
 
-需要应用上下文的业务操作仍需先用 `taptap-cli app +select --dev-id <developerId> --app-id <appId>`
-保存 CLI scope；页面链接只能作为可选的人工查看入口。
+需要应用上下文的业务操作仍需先用 `call_tool(name:"app +select", args:{dev_id:"<developerId>", app_id:"<appId>"})`
+保存 CLI scope（写操作，需用户确认）；页面链接只能作为可选的人工查看入口。
 
 ### 关于用户给的"账号 / 游戏 / 任何业务对象"是名字还是 ID（**所有 scope、所有业务通用**）
 
@@ -62,7 +63,7 @@ developer scope 下你知道 `developerId`，但没有选定具体应用。需�
    |---|---|
    | 找厂商制作人员 | 使用厂商资料相关工具按昵称检索 |
    | 找厂商官方号 | 使用厂商资料相关工具按昵称检索 |
-   | 找游戏 | `taptap-cli app +list --dev-id <developerId> --kw "<字符串>"`（本 skill，任何 scope）|
+   | 找游戏 | `call_tool(name:"app +list", args:{dev_id:"<developerId>", kw:"<字符串>"})`（本 skill，任何 scope）|
    | 找详情页展示的官方号 / 制作人员 | 使用厂商资料相关工具查询，再用对应展示配置工具修改 |
 3. **按结果分流**：
    - **0 命中** → 告知用户"在当前 [厂商/游戏] 里没找到叫《X》的 [制作人员/官方号/游戏]，是不是漏字 / 拼错了？也可以明确告诉我这是哪一类 ID"，**不要瞎试**
@@ -89,7 +90,7 @@ scope 切换后，历史 turn 里的事实仍然可被引用（这是合法且�
 
 ### 不要把 identity 发现命令当业务工具用
 
-`developer +list`、`app +list` 只用于回答"有哪些可达资源/在哪切换"。统计某厂商下游戏数时执行 `taptap-cli app +list --dev-id <developerId>` 并读取 `total`；不要用 `app +list` 替代 `taptap-app-edit` 对当前资料模块、包体和版本的字段层分析。
+`developer +list`、`app +list` 只用于回答"有哪些可达资源/在哪切换"。统计某厂商下游戏数时执行 `call_tool(name:"app +list", args:{dev_id:"<developerId>"})` 并读取 `total`；不要用 `app +list` 替代 `taptap-app-edit` 对当前资料模块、包体和版本的字段层分析。
 
 `app +list` / `overview` 的游戏条目包含服务端返回的 `review_status_label`。直接展示该标签，不要自行改写；例如“已上线（素材待优化）”应保持完整。单个条目没有状态时显示“未知”，不要把缺失状态当成“未发布”或其他业务状态。
 
@@ -108,4 +109,4 @@ scope 切换后，历史 turn 里的事实仍然可被引用（这是合法且�
 
 - `overview` 用于一次读取登录态、可见厂商、各厂商游戏总数和样例；可选参数只有 `--dev-id` 与 `--page-size`
 - 不要对 `overview` 使用 `--page-all`、`--page-limit` 或 `--page-delay`，也不要先错误调用再解释为“总览命令不接受分页参数”
-- 用户需要完整游戏列表时，先标准调用 `overview` 确认可见 developerId，再对目标厂商执行 `taptap-cli app +list --dev-id <developerId> --page-all --page-size 50`
+- 用户需要完整游戏列表时，先标准调用 `overview` 确认可见 developerId，再对目标厂商执行 `call_tool(name:"app +list", args:{dev_id:"<developerId>", page_all:true, page_size:50})`

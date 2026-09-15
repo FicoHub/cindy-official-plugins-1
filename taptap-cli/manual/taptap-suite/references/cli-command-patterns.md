@@ -35,50 +35,48 @@ taptap-cli auth login                     # 用户自己补做授权
 
 ### 通用工具调用
 
-```bash
-# ✅ 完整 operation input：参数按当前 schema 放入 --data
-taptap-cli app get-app-module --app-id 1 --dev-id 1 \
-  --data '{"module_id":"assets-upload"}'
+```text
+# ✅ 完整 operation input：业务字段按当前 schema 放进 data
+call_tool(name:"app get-app-module", args:{app_id:"1", developer_id:"1", data:{module_id:"assets-upload"}})
 
-# ✅ 长 JSON / 多行 JSON：优先放在当前目录文件中
-taptap-cli app save-changes --app-id 1 --dev-id 1 \
-  --data @changes.json --idempotency-key <intent-key> --dry-run
+# ✅ 长 JSON / 多行 JSON：写进会话工作目录里的文件，用 @ 引用
+call_tool(name:"app save-changes", args:{app_id:"1", developer_id:"1", data:"@changes.json", idempotency_key:"<intent-key>", dry_run:true})
 
-# ✅ 资源发现：使用当前命令树中的能力
-taptap-cli app +list --dev-id 1 --page-size 50
+# ✅ 资源发现：用命令树查当前可用的能力
+call_tool(name:"app +list", args:{dev_id:"1", page_size:50})
 ```
 
 规则：
 
-- 只有当前 action schema 声明的 `--xxx value` 才会进入 input，未知 flag 会在请求前拒绝
+- 只有当前 action schema 声明的 flag 才会进入 input，未知 flag 会在请求前拒绝（插件原样透传，由 CLI 判定）
 - `--dev-id` / `--app-id` 只在 operation 声明对应 scope 时注册；其余字段按 schema 放入 `--data`
 - 动态命令的 `--data` 是完整 operation input；资源发现优先使用命令树中的 `developer` / `app` 命令
-- `--data` 支持 inline JSON 和当前目录内的 `@relative-file.json`；经本插件调用时没有可用的 stdin，`-` 不可用
-- 短 JSON 使用 inline；复杂或多行 JSON 可用 `@file`，但文件必须位于会话工作目录（CLI 以会话工作目录为 cwd 解析该相对路径）
+- `data` 支持内联 JSON 对象,或字符串 `"@relative-file.json"`(相对会话工作目录的文件);经本插件调用时没有可用的 stdin,`-` 不可用
+- 短 JSON 用内联对象;复杂或多行 JSON 用 `@file`,文件必须位于会话工作目录(CLI 以会话工作目录为 cwd 解析该相对路径)
 - `--dev-id` / `--app-id` 与 `--data` 中同名字段冲突时返回 validation error，不静默覆盖
 - 默认输出是 JSON，普通命令、脚本、Skill 示例和生成命令都不追加冗余的 `--format json`
 - 只有命令自身默认输出文本或原始内容，而调用方明确需要结构化 JSON 时才显式追加
 
 ### 命令树调用（优先给外部 agent 使用）
 
-```bash
-taptap-cli schema
-taptap-cli app --help
-taptap-cli schema app prepare-review-snapshot
-taptap-cli schema app precheck-app-review
-taptap-cli app prepare-review-snapshot --app-id 1 --dev-id 2 --data @review-schedule.json
-taptap-cli app precheck-app-review --app-id 1 --dev-id 2 --data @review-precheck.json
-taptap-cli app submit-app-review --app-id 1 --dev-id 2 --data @audit-confirmation.json --idempotency-key review-submit-1 --yes
+```text
+list_tools()                                                                   # 顶层命令
+call_tool(name:"app", args:{_help:true})                                       # 浏览 app 下的 method
+call_tool(name:"schema", args:{_positional:["app","prepare-review-snapshot"]})
+call_tool(name:"schema", args:{_positional:["app","precheck-app-review"]})
+call_tool(name:"app prepare-review-snapshot", args:{app_id:"1", developer_id:"2", data:"@review-schedule.json"})
+call_tool(name:"app precheck-app-review", args:{app_id:"1", developer_id:"2", data:"@review-precheck.json"})
+call_tool(name:"app submit-app-review", args:{app_id:"1", developer_id:"2", data:"@audit-confirmation.json", idempotency_key:"review-submit-1", yes:true})
 ```
 
 规则：
 
-- `<service> --help` 用于浏览当前进程启动快照中的 method；`schema <service> <method>` 会在 metadata 缓存到期时做一次有界刷新，并返回刷新后可用 registry 的 input/output schema。真实 operation 执行前若发现 catalog 已更新，CLI 会停止并要求重跑。
-- metadata 标记为 write / high-risk-write 的 operation 缺 `--yes` 时返回 `confirmation_required`；`--dry-run` 只预览最终 HTTP 请求。命令暴露 `--idempotency-key` 时，预览和真实写入都要传稳定 key，并在同一业务意图内复用。当前提审前两步（`prepare-review-snapshot`、`precheck-app-review`）标为 `read`，无需 `--yes`；`submit-app-review` 仍为 `write`，需 `--yes` 与稳定幂等键。
+- `list_tools(category:"<service>")` 浏览该域的操作；`call_tool(name:"schema", args:{_positional:[service, method]})` 返回完整 input/output schema,它会在 metadata 缓存到期时做一次有界刷新。真实 operation 执行前若发现 catalog 已更新，CLI 会停止并要求重跑。
+- metadata 标记为 write / high-risk-write 的 operation 缺 `yes:true` 时返回 `CONFIRM_REQUIRED`；`dry_run:true` 只预览最终 HTTP 请求。命令接受幂等键时，预览和真实写入都要传稳定 `idempotency_key`，并在同一业务意图内复用。当前提审前两步（`prepare-review-snapshot`、`precheck-app-review`）标为 `read`，无需确认；`submit-app-review` 仍为 `write`，需用户确认与稳定幂等键。
 - 当前 schema 没有声明的风险确认或协议凭证字段不得由 CLI 补造。`precheck-app-review` 返回 `required_consents` 时，用户明确同意后按 schema 将全部未过期的 `consent_token` 作为 `submit-app-review.consent_tokens` 原样回传；其它无输入通道的要求仍报告契约缺口。
 - 分页 flag 只在 operation 声明 `x-pagination` 时注册；输出字段以 output schema 为准。
 - `aliases` 只提供人类友好的转发，例如 `audit:submit`；手写 workflow shortcut 只编排 metadata 已声明的能力，不能扩展 API capability。
-- `completion zsh|bash|fish|powershell` 从当前注册命令树生成补全，不访问额外的静态 tool registry。
+- `completion zsh|bash|fish|powershell` 从当前注册命令树生成补全（用户在本机终端执行，插件不提供）。
 
 ### Skills 安装（用户在自己终端执行,插件不代跑）
 
@@ -93,24 +91,24 @@ Skills，避免默认分支内容与旧版 CLI 的命令或参数漂移。项目
 
 ### 查工具 schema（不确定参数时先调）
 
-```bash
-taptap-cli schema <service> <method>
+```text
+call_tool(name:"schema", args:{_positional:[service, method]})
 # 返回完整 JSON Schema，含参数名、类型、枚举值等
 ```
 
 ### 资源发现
 
-```bash
-taptap-cli developer +list
-taptap-cli developer +enter
-taptap-cli developer +suggest
-taptap-cli app +list --kw 游戏名
-taptap-cli overview --dev-id <N>
+```text
+call_tool(name:"developer +list")
+call_tool(name:"developer +enter", args:{dev_id:"<developerId>"})
+call_tool(name:"developer +suggest", args:{dev_id:"<developerId>"})
+call_tool(name:"app +list", args:{kw:"游戏名"})
+call_tool(name:"overview", args:{dev_id:"<N>"})
 ```
 
-`developer +enter` / `developer +suggest` 用于 CLI 场景模拟 Web 侧进入厂商后的 starter prompts：输出官方号、制作人员认证、游戏发布、审核进度等推荐问题。`developer +enter` 会校验并保存当前 profile 的厂商 scope；`developer +suggest` 只读。执行 `app +select` 后还会保存游戏 scope，后续命令可省略对应 ID，显式参数始终优先。
+`developer +enter` / `developer +suggest` 用于 CLI 场景模拟 Web 侧进入厂商后的 starter prompts：输出官方号、制作人员认证、游戏发布、审核进度等推荐问题。`developer +enter` / `app +select` 会改写本机 CLI 配置(CLI 标为 write,需用户确认后加 `yes:true`)；`developer +suggest` 只读。保存 scope 后后续命令可省略对应 ID,显式参数始终优先。
 
-`overview` 是账号总览入口：一次查看服务器、可见厂商、指定厂商的游戏样例、推荐问题和常用下一条命令；它只接受可选的 `--dev-id` 与 `--page-size`，不使用 `--page-all` / `--page-limit` / `--page-delay`。需要完整游戏列表时，对明确的 developerId 调用 `app +list --page-all --page-size 50`。它不保存 scope，后续命令仍显式携带 `--dev-id` / `--app-id`。
+`overview` 是账号总览入口：一次查看服务器、可见厂商、指定厂商的游戏样例、推荐问题和常用下一条命令；它只接受可选的 `dev_id` 与 `page_size`，不接受 `page_all` / `page_limit` / `page_delay`。需要完整游戏列表时，对明确的 developerId 调用 `call_tool(name:"app +list", args:{dev_id:"<developerId>", page_all:true, page_size:50})`。它不保存 scope，后续命令仍显式携带 `dev_id` / `app_id`。
 
 ### 文件上传
 

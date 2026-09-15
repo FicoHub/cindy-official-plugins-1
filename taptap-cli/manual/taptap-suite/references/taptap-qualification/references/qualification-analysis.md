@@ -28,13 +28,10 @@
 
 ## 命令
 
-```bash
-taptap-cli schema qualification analyze-qualification-status
-taptap-cli app list-packages \
-  --app-id <appId> --dev-id <developerId>
-taptap-cli qualification analyze-qualification-status \
-  --app-id <appId> --dev-id <developerId> \
-  --data '<confirmed-analysis-input-json>'
+```text
+call_tool(name:"schema", args:{_positional:["qualification","analyze-qualification-status"]})
+call_tool(name:"app list-packages", args:{app_id:"<appId>", developer_id:"<developerId>"})
+call_tool(name:"qualification analyze-qualification-status", args:{app_id:"<appId>", developer_id:"<developerId>", data:<confirmed-analysis-input-json>})
 ```
 
 当前 schema 确认支持下列字段时，`<confirmed-analysis-input-json>` 的类型示例：
@@ -46,9 +43,9 @@ taptap-cli qualification analyze-qualification-status \
 Catalog `1.0.29+` 下，按当前 schema 将用户已确认的
 `release_intent`、`is_online`、`has_iap`、`has_text_story_simulation`、
 `has_ai_content`、`involves_ip` 作为同名 JSON 字段放入 `--data`；字段较多时可改用
-`--data @qualification-analysis.json`。未确认字段直接省略，不能默认填成 `false`。
-`app_id` 和 `developer_id` 继续使用 `--app-id`、`--dev-id`；只有命令 `--help`
-实际列出的参数才作为 flags 使用。不要在旧 schema 下提前传入这些字段。
+`data:"@qualification-analysis.json"`(相对会话工作目录的文件)。未确认字段直接省略，不能默认填成 `false`。
+`app_id` 和 `developer_id` 继续作为 scope 字段直接传;只有命令 `--help`(经 `args._help:true`)
+实际列出的参数才作为控制 flag 使用。不要在旧 schema 下提前传入这些字段。
 
 ## 执行步骤
 

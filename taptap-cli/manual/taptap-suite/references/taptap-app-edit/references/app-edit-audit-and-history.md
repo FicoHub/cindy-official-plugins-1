@@ -171,12 +171,8 @@
 
 #### H-1. "上一版为什么被拒？" / "刚才那次提审什么结果？"
 
-```bash
-taptap-cli app list-app-versions \
-  --app-id <appId> \
-  --dev-id <developerId> \
-  --page 1 \
-  --page-size 20
+```text
+call_tool(name:"app list-app-versions", args:{app_id:"<appId>", developer_id:"<developerId>", page:1, page_size:20})
 ```
 
 - 按返回 `list` 顺序从新到旧扫描每个 item
@@ -186,12 +182,8 @@ taptap-cli app list-app-versions \
 
 #### H-2. "最近发了几版？" / "这个月上了几次新版本？"
 
-```bash
-taptap-cli app list-app-versions \
-  --app-id <appId> \
-  --dev-id <developerId> \
-  --page 1 \
-  --page-size 50
+```text
+call_tool(name:"app list-app-versions", args:{app_id:"<appId>", developer_id:"<developerId>", page:1, page_size:50})
 ```
 
 - 按当前声明的 `status === 'online'` 过滤已上线版本，并使用 `version` 和 `release_time` 报告。
@@ -199,11 +191,8 @@ taptap-cli app list-app-versions \
 
 #### H-3. "我想看下 X.Y.Z 版本当时改了什么字段"
 
-```bash
-taptap-cli app get-app-version \
-  --app-id <appId> \
-  --dev-id <developerId> \
-  --data '{"version":"X.Y.Z"}'
+```text
+call_tool(name:"app get-app-version", args:{app_id:"<appId>", developer_id:"<developerId>", data:{version:"X.Y.Z"}})
 ```
 
 - `version` 必须取自 `list-app-versions.result.list[].version`；列表项的 `version_id`

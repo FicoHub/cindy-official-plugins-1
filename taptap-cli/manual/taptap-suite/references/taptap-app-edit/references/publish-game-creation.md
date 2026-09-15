@@ -238,7 +238,7 @@ appId：<appId>
 
 确认后，我会按该方向生成准备清单，再继续处理资料、素材、包体、资质和提审。
 当前缺少图片素材时，我会先确认你是否有可用的本地素材或真实游戏截图。若没有本地素材，可以在你确认后为图标、宣传图或 Windows 素材生成本地候选图；游戏截图必须来自真实游戏画面。
-如果你已有本地图片、视频或包体目录，会先进入 taptap-materials 盘点和逐项上传流程；先执行 `taptap-cli materials +inspect`，再根据 manifest 和 handoff 确认每个文件路径和用途。
+如果你已有本地图片、视频或包体目录，会先进入 taptap-materials 盘点和逐项上传流程；先执行 `call_tool(name:"materials", args:{_positional:["+inspect","<目录或zip>"]})`，再根据 manifest 和 handoff 确认每个文件路径和用途。
 文案文件请直接交给我读取；我会按 taptap-app-edit 流程读取当前值、展示候选并在你确认后修改。
 页面入口：[编辑资料 · 提交审核](https://<current-server-host>/v3/<developerId>/app/<appId>/store/update)
 ```
@@ -247,12 +247,8 @@ appId：<appId>
 
 以下示例区分“本地 dry-run”和“真实创建成功”；占位符不能作为真实请求参数。不得把已有游戏的 appId 填入模拟回包冒充创建结果；`intent_question` / `intent_options` 也只有服务端本次真实返回时才出现。`--dry-run` 返回的请求详情是内部执行信息，不回显给用户，面向用户只做业务抽象。
 
-```bash
-taptap-cli app create-app \
-  --dev-id <developerId> \
-  --data '{"title":"<gameTitle>","category":"<category>","developer_role":"<developer|author|publisher>","package_type":"h5"}' \
-  --idempotency-key <create-key> \
-  --dry-run
+```text
+call_tool(name:"app create-app", args:{developer_id:"<developerId>", data:{title:"<gameTitle>", category:"<category>", developer_role:"<developer|author|publisher>", package_type:"h5"}, idempotency_key:"<create-key>", dry_run:true})
 ```
 
 ```json
@@ -276,12 +272,8 @@ taptap-cli app create-app \
 
 用户明确确认后，使用同一份输入执行：
 
-```bash
-taptap-cli app create-app \
-  --dev-id <developerId> \
-  --data @create-app.json \
-  --idempotency-key <stable-key> \
-  --yes
+```text
+call_tool(name:"app create-app", args:{developer_id:"<developerId>", data:"@create-app.json", idempotency_key:"<stable-key>", yes:true})
 ```
 
 只有创建接口真实返回 `created: true` 后，才可把本次返回的 `app_id` 视为新游戏标识：

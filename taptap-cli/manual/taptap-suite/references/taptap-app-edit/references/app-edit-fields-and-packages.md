@@ -48,20 +48,15 @@ Skill 分析只用于资料准备建议。用户明确要求提审后，以 `pre
 - 整组重传：`op: 'replace'`
 - 替换一张：`op: 'replace_one'`，并传从最新字段值读取的 `old_value`
 
-```bash
-taptap-cli app save-changes \
-  --app-id <appId> \
-  --dev-id <developerId> \
-  --data '{"changes":[{"field_id":"screenshots","op":"replace_one","old_value":"https://example.com/old.png","value":"https://example.com/new.png","expected":["https://example.com/old.png","https://example.com/keep.png"]}]}' \
-  --idempotency-key <stable-save-intent-key> \
-  --dry-run
+```text
+call_tool(name:"app save-changes", args:{app_id:"<appId>", developer_id:"<developerId>", data:{changes:[{field_id:"screenshots", op:"replace_one", old_value:"https://example.com/old.png", value:"https://example.com/new.png", expected:["https://example.com/old.png","https://example.com/keep.png"]}]}, idempotency_key:"<stable-save-intent-key>", dry_run:true})
 ```
 
 资料视频规格必须以 `get-app-module("assets-upload")` 返回的 `video_spec` 为准。用户询问 `trailer` / `gameplay_demo_video` 的格式、大小、时长、分辨率、比例或内容要求时，先读取规格，只做判断，不调用 `save-changes`。
 
 - 不凭记忆复述具体限制；规范来源、动态规格优先级、冲突口径和检查项统一按[游戏物料要求](taptap-suite/references/material-requirements.md)执行。
 - 填写或替换素材时按 [review risk checklist](taptap-suite/references/taptap-app-edit/references/review-risk-checklist.md) 展示当前字段相关的官方规则、确定性检查结果和需要人工判断的内容要求；历史拒审必须单列来源。
-- 已用 `taptap-cli upload-video` 上传时，字段值传返回的数字 `videoId`，不是 URL。
+- 已用 `call_tool(name:"upload-video", …)` 上传时，字段值传返回的数字 `videoId`，不是 URL。
 - 未上传时转 `taptap-materials` 执行 `upload-video`（`--scene` 指定资料回填目标；其预览会读取目标字段的实时 `video_spec`，展示目标与规范，不会上传文件），拿到返回的数字 `videoId` 后按本节写入。`scene` 只表示本地资料回填目标，不会发送给 `uploadVideo`。视频转码完成前可能无法预览。
 - `trailer` 与 `gameplay_demo_video` 必须使用不同的 `videoId`。修改任一字段前先读取两者当前值，并校验本批变更后的最终值；若工具返回重复冲突，不要用相同 ID 重试，要求用户选择或上传另一个视频。不同 ID 只表示引用不同对象，不能据此宣称内容不雷同或语义审核通过。
 
@@ -77,17 +72,14 @@ taptap-cli app save-changes \
 
 Spark 版本有专用编排命令，避免把包体管理概览误当成资料页绑定接口：
 
-```bash
-taptap-cli app +bind-spark-version \
-  --app-id <appId> --dev-id <developerId> \
-  --data @spark-binding.json \
-  --idempotency-key <intent-key> --dry-run
+```text
+call_tool(name:"app +bind-spark-version", args:{app_id:"<appId>", developer_id:"<developerId>", data:"@spark-binding.json", idempotency_key:"<intent-key>", dry_run:true})
 ```
 
-先从同次 `list-packages --data '{"package_types":["spark"]}'` 选择
+先从同次 `call_tool(name:"app list-packages", args:{data:{package_types:["spark"]}})` 选择
 `status=ready` 的候选，把其 `package_id` 原样作为 `version_code`，并复制
 `package_slots.main.expected`。dry-run 会按 startup Catalog 离线校验精确
-`selectPackage` 输入并生成 apply 命令；`--payload-digest` 同时固定已校验
+`selectPackage` 输入并生成 apply 命令；`args.payload_digest` 同时固定已校验
 payload 和 idempotency key，用户确认后必须原样执行该命令。apply 会重新读取候选、槽位
 可用性和 expected，写后再读回目标
 `spark_version_code`。未知写入结果按返回的 readback 命令先查询，禁止盲目换 key
