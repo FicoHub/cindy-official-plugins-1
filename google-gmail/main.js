@@ -202,11 +202,16 @@ async function downloadAttachments(parts, args, account, callId) {
       }
       var body = part.body;
       if (body.attachmentId) {
-        var response = await api({
-          url: BASE + '/messages/' + encodeURIComponent(args.message_id) +
-            '/attachments/' + encodeURIComponent(body.attachmentId),
-          account: account, callId: callId,
-        });
+        var response;
+        try {
+          response = await api({
+            url: BASE + '/messages/' + encodeURIComponent(args.message_id) +
+              '/attachments/' + encodeURIComponent(body.attachmentId),
+            account: account, callId: callId,
+          });
+        } catch (_transportError) {
+          throw new Error('附件网络请求未完成，未保存该文件；请检查网络连接后重试此附件，无需仅因此重新连接账号');
+        }
         if (response.err) {
           if (response.status === 401) throw new Error(response.err + '；账号授权可能已失效，请到 Gmail 插件详情重新连接该账号后重试');
           if (response.status === 403) throw new Error(response.err + '；请检查该账号的邮件访问权限；若缺少授权，请到 Gmail 插件详情重新连接。若为配额或组织策略限制，请按 Google 错误原因处理');

@@ -151,7 +151,14 @@ test('truncated, invalid, mismatched, oversized and interrupted downloads never 
 
 test('partial batch keeps successful files and reports individual failures', async () => {
   const h = harness(fixture(), { throwDownload: true });
-  try { const r = await h.run({ action: 'download_attachments' }); assert.equal(r.result.complete, false); assert.deepEqual(r.result.files.map((f) => f.status), ['downloaded', 'failed', 'downloaded']); }
+  try {
+    const r = await h.run({ action: 'download_attachments' });
+    assert.equal(r.result.complete, false);
+    assert.deepEqual(r.result.files.map((f) => f.status), ['downloaded', 'failed', 'downloaded']);
+    assert.match(r.result.files[1].error, /检查网络连接后重试此附件/);
+    assert.ok(!JSON.stringify(r).includes('Network interrupted'));
+    assert.equal(h.writes.length, 2);
+  }
   finally { h.close(); }
 });
 
