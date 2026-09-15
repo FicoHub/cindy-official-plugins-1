@@ -135,27 +135,29 @@ function header(message, name) {
 function extractBody(payload) {
   if (!payload) return '';
   var queue = [payload];
-  var htmlFallback = '';
+  var htmlFallback = null;
+  var unreadable = false;
   while (queue.length) {
     var part = queue.shift();
     if (isAttachment(part)) continue;
-    if (/^text\/(plain|html)$/i.test(part.mimeType || '') && part.body && part.body.attachmentId && !part.body.data) {
-      throw new Error('正文存储在独立 MIME 数据中');
-    }
-    if (part.mimeType === 'text/plain' && part.body && part.body.data) {
-      return utf8FromB64url(part.body.data);
-    }
-    if (part.mimeType === 'text/html' && part.body && part.body.data && !htmlFallback) {
-      htmlFallback = utf8FromB64url(part.body.data)
-        .replace(/<[^>]+>/g, ' ')
-        .replace(/\s+/g, ' ')
-        .trim();
+    var mime = (part.mimeType || '').toLowerCase();
+    if ((mime === 'text/plain' || mime === 'text/html') && part.body) {
+      if (part.body.attachmentId && !part.body.data) unreadable = true;
+      else if (typeof part.body.data === 'string') {
+        try {
+          var decoded = utf8FromB64url(part.body.data);
+          if (mime === 'text/plain') return decoded;
+          if (htmlFallback === null) htmlFallback = decoded.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+        } catch (_candidateError) { unreadable = true; }
+      }
     }
     if (part.parts) {
       for (var i = 0; i < part.parts.length; i++) queue.push(part.parts[i]);
     }
   }
-  return htmlFallback;
+  if (htmlFallback !== null) return htmlFallback;
+  if (unreadable) throw new Error('没有可解析的正文候选');
+  return '';
 }
 
 // Gmail MIME part references remain stable across reads, including parts without partId.
@@ -323,6 +325,7 @@ async function downloadAttachments(parts, args, account, callId) {
 }
 
 async function gmail(args, callId) {
+  if (Object.prototype.hasOwnProperty.call(args, 'save_dir')) return fail('save_dir 必须放在 ghost_call 顶层，不能放入 Gmail args；请修正调用后重试，未写入任何目录');
   var account = args.account;
   if (args.action === 'search') {
     if (!args.query) return fail('search 需要 query(Gmail 搜索语法)');

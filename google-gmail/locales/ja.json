@@ -7,7 +7,7 @@
       "description": "このプラグインに接続済みの Gmail アカウントと状態を一覧表示します。アカウントは Gmail プラグインの詳細画面で個別に認証する必要があります。"
     },
     "gmail": {
-      "description": "検索/読取/送信/下書き/ラベル。read は添付一覧、download_attachments は選択IDをタスク/save_dirに保存。1件16 MiB、1回16件。complete、残りID、body_error、各statusを確認。unknownなら再試行前にattempted_pathを確認。送信にはユーザーの意図が必要。modify_labelsは利用不可。"
+      "description": "readは添付一覧、download_attachmentsはIDで保存。save_dirはargsではなくghost_call最上位に指定。省略時はタスク、不正時はエラーで別の場所に保存しません。1件16 MiB、1回16件。complete、残りID、body_error/statusを確認。unknownは再試行前にattempted_pathを確認。送信にはユーザーの意図が必要。modify_labelsは未対応。"
     }
   }
 }

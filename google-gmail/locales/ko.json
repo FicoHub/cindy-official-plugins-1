@@ -7,7 +7,7 @@
       "description": "이 플러그인에 연결된 Gmail 계정과 상태를 나열합니다. 계정은 Gmail 플러그인 상세 화면에서 별도로 인증해야 합니다."
     },
     "gmail": {
-      "description": "검색/읽기/전송/초안/라벨. read는 첨부 목록, download_attachments는 선택 ID를 작업/save_dir에 저장. 파일당16 MiB, 호출당16개. complete, 남은 ID, body_error, 각 status 확인. unknown이면 재시도 전에 attempted_path 확인. 전송은 사용자 의도 필요. modify_labels 사용 불가."
+      "description": "read는 첨부 목록, download_attachments는 ID로 저장. save_dir는 args가 아닌 ghost_call 최상위에 지정. 생략 시 작업 폴더, 오류 시 다른 곳에 저장하지 않음. 파일당16 MiB, 호출당16개. complete, 남은 ID, body_error/status 확인. unknown은 재시도 전 attempted_path 확인. 전송은 사용자 의도 필요. modify_labels 미지원."
     }
   }
 }

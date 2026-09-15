@@ -7,7 +7,7 @@
       "description": "List the Gmail accounts connected to this plugin and their status. Accounts must be authorized separately in the Gmail plugin details."
     },
     "gmail": {
-      "description": "Search/read/send/draft/list_labels. Read lists attachments; download_attachments saves selected IDs to task/save_dir. 16 MiB/file, 16/call. Check complete, remaining IDs, body_error and each status; unknown: inspect attempted_path before retry. Sending needs user intent. modify_labels unavailable."
+      "description": "read lists attachments; download_attachments saves IDs. Set save_dir at ghost_call top level, not args; absent: workdir, invalid: error. 16 MiB/file,16/call. Check complete, remaining IDs, body_error/status; unknown: inspect attempted_path before retry. Send needs intent. modify_labels unavailable."
     }
   }
 }

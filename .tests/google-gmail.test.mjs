@@ -479,3 +479,29 @@ test('download without default gives account selection guidance, explicit accoun
     assert.equal(explicit.result.complete, true); assert.equal(h.calls[0].authAccount, 'account-a');
   } finally { h.close(); }
 });
+
+test('unreadable alternative bodies do not hide later usable candidates', async () => {
+  const external = { mimeType: 'text/html', body: { attachmentId: 'external', size: 100 } };
+  const malformed = { mimeType: 'text/plain', body: { data: '!!!!' } };
+  const plain = { mimeType: 'text/plain', body: { data: encoded('usable') } };
+  const html = { mimeType: 'text/html', body: { data: encoded('<p>usable</p>') } };
+  for (const parts of [[external, plain], [malformed, plain], [external, html], [html, malformed]]) {
+    const h = harness({ mimeType: 'multipart/alternative', parts });
+    try {
+      const r = await h.run({ action: 'read' });
+      assert.equal(r.ok, true); assert.equal(r.result.body, 'usable');
+      assert.equal(r.result.body_error, undefined);
+    } finally { h.close(); }
+  }
+});
+
+test('misplaced save_dir never silently writes into the workdir', async () => {
+  for (const action of ['read', 'download_attachments']) {
+    const h = harness(fixture());
+    try {
+      const r = await h.run({ action, download_attachments: true, save_dir: '/chosen-directory' });
+      assert.equal(r.ok, false); assert.match(r.message, /ghost_call 顶层/);
+      assert.equal(h.calls.length, 0); assert.equal(h.writes.length, 0);
+    } finally { h.close(); }
+  }
+});
