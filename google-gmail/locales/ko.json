@@ -7,7 +7,7 @@
       "description": "이 플러그인에 연결된 Gmail 계정과 상태를 나열합니다. 계정은 Gmail 플러그인 상세 화면에서 별도로 인증해야 합니다."
     },
     "gmail": {
-      "description": "read는 첨부 목록, download_attachments는 ID로 저장. save_dir는 args가 아닌 ghost_call 최상위에 지정. 생략 시 작업 폴더, 오류 시 다른 곳에 저장하지 않음. 파일당16 MiB, 호출당16개. complete, 남은 ID, body_error/status 확인. unknown은 재시도 전 attempted_path 확인. 전송은 사용자 의도 필요. modify_labels 미지원."
+      "description": "search는 query로 Gmail 검색, read는 본문과 첨부 목록 조회, list_labels는 라벨 목록 조회입니다. draft는 Gmail에 원격 초안을 만들고 send는 메일을 전송합니다. 둘 다 사용자 의도가 필요합니다. modify_labels는 미지원. download_attachments는 attachment_ids로 선택한 첨부를 저장하며 생략하면 전체를 저장합니다. read의 download_attachments=true도 첨부를 저장합니다. save_dir는 args가 아닌 ghost_call 최상위에 지정하며 생략하면 작업 폴더에 저장합니다. 잘못된 저장 지정은 오류로 처리하고 다른 위치로 변경하지 않습니다. 파일당16 MiB, 호출당16개. complete, remaining_attachment_ids, 각 파일 status/error를 확인하고 남은 ID는 명시적으로 계속 호출하세요. body_error는 본문을 완전히 읽지 못했다는 뜻입니다. unknown이면 파일이 이미 있을 수 있으므로 root/attempted_path를 확인한 뒤 재시도를 결정하세요. downloaded가 확인된 파일만 여세요. 전송/초안 결과가 불명확하면 중복을 막기 위해 Gmail에서 확인한 뒤 재시도하세요."
     }
   }
 }
