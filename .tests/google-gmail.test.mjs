@@ -164,7 +164,7 @@ test('partial batch keeps successful files and reports individual failures', asy
 
 test('host write denial remains a failure, no fallback destination', async () => {
   const h = harness(attachment('log.json', 'log'), { rejectWrite: true });
-  try { const r = await h.run({ action: 'download_attachments' }); assert.equal(r.result.complete, false); assert.match(r.result.files[0].error, /禁止写入/); assert.equal(h.writes.length, 1); }
+  try { const r = await h.run({ action: 'download_attachments' }); assert.equal(r.result.complete, false); assert.match(r.result.files[0].error, /写入权限/); assert.equal(h.writes.length, 1); }
   finally { h.close(); }
 });
 
@@ -376,4 +376,106 @@ test('lost write acknowledgements report unknown outcome without exposing IPC er
       if (mode !== 'reject-before') assert.equal(readFileSync(path.join(h.dir, attempted.path), 'utf8'), 'log');
     } finally { h.close(); }
   }
+});
+
+test('non-JSON authorization errors and malformed write receipts retain recovery semantics', async () => {
+  for (const action of ['read', 'send', 'draft']) for (const response of [
+    { ok: true, status: 401, body: '<html>private upstream data</html>' },
+    { ok: true, status: 403, body: '' },
+    { ok: true, status: 200, body: '{bad' },
+    { ok: true, status: 200, body: '{}' },
+    { ok: true, status: 502, body: 'private upstream data' },
+    { ok: true, body: '{}' },
+  ]) {
+    const h = harness({}); h.context.cindy.fetch = async () => response;
+    try {
+      const r = await h.run({ action, to: 'recipient@example.test', subject: 'test', body_text: 'test' });
+      assert.equal(r.ok, false); assert.ok(!r.message.includes('private upstream data'));
+      if (response.status === 401 || response.status === 403) assert.match(r.message, /重新连接/);
+      else if (action !== 'read') assert.match(r.message, /未知.*勿直接重复提交/);
+      assert.equal(h.writes.length, 0);
+    } finally { h.close(); }
+  }
+});
+
+test('invalid body encoding does not block valid attachments', async () => {
+  const h = harness({ parts: [
+    { mimeType: 'text/plain', body: { data: '!!!!' } }, attachment('log.json', 'log'),
+  ] });
+  try {
+    const r = await h.run({ action: 'read', download_attachments: true });
+    assert.equal(r.ok, true); assert.match(r.result.body_error, /正文未能完整解析/);
+    assert.equal(r.result.downloads.complete, true);
+    assert.equal(readFileSync(path.join(h.dir, r.result.downloads.files[0].path), 'utf8'), 'log');
+  } finally { h.close(); }
+});
+
+test('MIME structure and depth errors fail explicitly before file writes', async () => {
+  let deep = attachment('log', 'log');
+  for (let i = 0; i < 70; i++) deep = { parts: [deep] };
+  for (const payload of [{ parts: {} }, { parts: [null] }, { filename: {} }, { headers: {} }, deep]) {
+    const h = harness(payload);
+    try {
+      const r = await h.run({ action: 'read', download_attachments: true });
+      assert.equal(r.ok, false); assert.match(r.message, /MIME/); assert.equal(h.writes.length, 0);
+    } finally { h.close(); }
+  }
+});
+
+test('invalid save tickets never fall back to workdir', async () => {
+  for (const save_deposit of [null, {}, { token: '' }, { token: 7 }]) {
+    const h = harness(fixture());
+    try {
+      const r = await h.run({ action: 'download_attachments', save_deposit });
+      assert.equal(r.ok, false); assert.match(r.message, /保存目录票据无效/); assert.equal(h.writes.length, 0);
+    } finally { h.close(); }
+  }
+});
+
+test('unnamed text attachments tolerate disposition whitespace and stay out of body', async () => {
+  const h = harness({ parts: [
+    { mimeType: 'text/plain', headers: [{ name: 'Content-Disposition', value: ' attachment; filename=log.txt' }], body: { data: encoded('log'), size: 3 } },
+    { mimeType: 'text/plain', body: { data: encoded('body') } },
+  ] });
+  try {
+    const r = await h.run({ action: 'read', download_attachments: true });
+    assert.equal(r.result.body, 'body'); assert.equal(r.result.attachments.length, 1);
+    assert.equal(r.result.downloads.complete, true);
+  } finally { h.close(); }
+});
+
+test('Host write failures hide internal text and invalid returned paths are not successful', async () => {
+  for (const response of [{ ok: false, message: 'EIO /private/internal/path' },
+    { ok: true, bytes: 3, path: '' }, { ok: true, bytes: 3, path: '../outside' }]) {
+    const h = harness(attachment('log', 'log')); const original = h.context.cindy.send;
+    h.context.cindy.send = async (req) => req.type === 'fs-request' ? response : original(req);
+    try {
+      const r = await h.run({ action: 'download_attachments' });
+      assert.equal(r.result.complete, false); assert.ok(!JSON.stringify(r).includes('/private/internal'));
+      assert.equal(r.result.files[0].status, response.ok ? 'unknown' : 'failed');
+    } finally { h.close(); }
+  }
+});
+
+test('externally stored body is explicitly incomplete while attachments remain downloadable', async () => {
+  const h = harness({ parts: [
+    { mimeType: 'text/plain', body: { attachmentId: 'external-body', size: 100 } }, attachment('log.json', 'log'),
+  ] });
+  try {
+    const r = await h.run({ action: 'read', download_attachments: true });
+    assert.equal(r.ok, true); assert.match(r.result.body_error, /正文未能完整解析/);
+    assert.equal(r.result.attachments.length, 1); assert.equal(r.result.downloads.complete, true);
+  } finally { h.close(); }
+});
+
+test('download without default gives account selection guidance, explicit account bypasses metadata', async () => {
+  const h = harness(attachment('log', 'log'), { accounts: [{ id: 'account-a', isDefault: false }] });
+  try {
+    const r = await h.run({ action: 'download_attachments' });
+    assert.equal(r.ok, false); assert.match(r.message, /account.*gmail_accounts/);
+    assert.equal(h.calls.length, 0);
+    h.context.fetch = async () => { throw new Error('metadata unavailable'); };
+    const explicit = await h.run({ action: 'download_attachments', account: 'account-a' });
+    assert.equal(explicit.result.complete, true); assert.equal(h.calls[0].authAccount, 'account-a');
+  } finally { h.close(); }
 });

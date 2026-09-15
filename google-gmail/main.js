@@ -35,24 +35,29 @@ async function api(opts) {
     return { err: transportError };
   }
   if (!response || !response.ok) return { err: transportError };
-  if (response.truncated) return { err: 'Gmail 响应超过客户端上限，结果不完整；若为发送或创建草稿，请先检查 Gmail 中的实际状态' };
-  var data = null;
-  if (response.body) {
-    try {
-      data = JSON.parse(response.body);
-    } catch (_err) {
-      return { err: 'Google 返回了无法解析的响应(HTTP ' + response.status + ')' };
-    }
+  var isWrite = request.method !== 'GET';
+  var uncertain = '操作结果未知；请先到 Gmail 核实邮件或草稿，勿直接重复提交';
+  if (!Number.isInteger(response.status) || response.status < 100 || response.status > 599) {
+    return { err: isWrite ? uncertain : 'Gmail 响应状态无效，请检查连接后重试' };
   }
+  var data = null;
+  try { data = JSON.parse(response.body); } catch (_parseError) { /* Classify HTTP errors before payload errors. */ }
   if (response.status < 200 || response.status >= 300) {
-    var message = data && data.error && data.error.message
-      ? data.error.message
-      : (response.body || '').slice(0, 200);
+    var message = data && data.error && typeof data.error.message === 'string'
+      ? data.error.message.slice(0, 200) : '请求未成功';
     var detail = 'Gmail API 返回 HTTP ' + response.status + ':' + message;
     if (response.status === 401) detail += '；账号授权可能已失效，请到 Gmail 插件详情重新连接该账号后重试';
-    if (response.status === 403) detail += '；请检查该账号的邮件访问权限；若缺少授权，请到 Gmail 插件详情重新连接。若为配额或组织策略限制，请按 Google 错误原因处理';
+    else if (response.status === 403) detail += '；请检查该账号的邮件访问权限；若缺少授权，请到 Gmail 插件详情重新连接。若为配额或组织策略限制，请按 Google 错误原因处理';
+    else if (response.status === 404) detail += '；请确认账号并重新搜索邮件，邮件或附件可能已删除';
+    else if (response.status === 429) detail += '；请求过于频繁，请稍后重试';
+    else detail += '；请检查请求参数和连接状态后重试';
+    if (isWrite && (response.status >= 500 || response.status === 408)) detail = uncertain + '（HTTP ' + response.status + '）';
     return { err: detail, status: response.status };
   }
+  if (response.truncated || !data || typeof data !== 'object' || Array.isArray(data)) {
+    return { err: isWrite ? uncertain : 'Gmail 响应不完整或格式无效，请重新读取；若持续超限，请在 Gmail 中查看' };
+  }
+
   return { data: data };
 }
 
@@ -63,6 +68,7 @@ async function listAccounts() {
   } catch (_transportError) {
     return fail('无法连接 Cindy 本地账号服务，请稍后重试；若持续失败，请重新打开 Gmail 插件详情检查服务状态');
   }
+  if (!response) return fail('Cindy 本地账号服务未返回结果，请稍后重试');
   if (!response.ok) {
     if (response.status === 401 || response.status === 403) return fail('账号状态服务拒绝访问，请到 Gmail 插件详情检查连接状态后重试（HTTP ' + response.status + '）');
     return fail('Cindy 本地账号服务暂时不可用，请稍后重试；若持续失败，请重新打开 Gmail 插件详情检查服务状态（HTTP ' + response.status + '）');
@@ -119,9 +125,9 @@ function encodeHeaderWord(text) {
 }
 
 function header(message, name) {
-  var headers = (message.payload && message.payload.headers) || [];
+  var headers = (message && message.payload && message.payload.headers) || [];
   for (var i = 0; i < headers.length; i++) {
-    if (headers[i].name.toLowerCase() === name.toLowerCase()) return headers[i].value;
+    if (headers[i] && typeof headers[i].name === 'string' && headers[i].name.toLowerCase() === name.toLowerCase()) return typeof headers[i].value === 'string' ? headers[i].value : '';
   }
   return '';
 }
@@ -133,6 +139,9 @@ function extractBody(payload) {
   while (queue.length) {
     var part = queue.shift();
     if (isAttachment(part)) continue;
+    if (/^text\/(plain|html)$/i.test(part.mimeType || '') && part.body && part.body.attachmentId && !part.body.data) {
+      throw new Error('正文存储在独立 MIME 数据中');
+    }
     if (part.mimeType === 'text/plain' && part.body && part.body.data) {
       return utf8FromB64url(part.body.data);
     }
@@ -155,11 +164,30 @@ function partHeader(part, name) {
 }
 
 function isAttachment(part) {
-  var disposition = partHeader(part, 'Content-Disposition');
+  var disposition = partHeader(part, 'Content-Disposition').trim();
   return Boolean(part.filename || /^attachment(?:;|$)/i.test(disposition) ||
     ((/^inline(?:;|$)/i.test(disposition) || partHeader(part, 'Content-ID')) &&
       !/^text\/(plain|html)$/i.test(part.mimeType || '')) ||
     (part.body && part.body.attachmentId && !/^text\/(plain|html)$/i.test(part.mimeType || '')));
+}
+
+function validateMime(payload) {
+  var pending = [{ part: payload, depth: 0 }];
+  var count = 0;
+  while (pending.length) {
+    var item = pending.pop();
+    var part = item.part;
+    if (++count > 4096 || item.depth > 64) return '邮件 MIME 结构过大或过深，请在 Gmail 中查看附件';
+    if (!part || typeof part !== 'object' || Array.isArray(part) ||
+        (part.parts !== undefined && !Array.isArray(part.parts)) ||
+        (part.headers !== undefined && !Array.isArray(part.headers)) ||
+        (part.filename !== undefined && typeof part.filename !== 'string') ||
+        (part.body !== undefined && (!part.body || typeof part.body !== 'object' || Array.isArray(part.body)))) {
+      return '邮件 MIME 数据格式异常，请重新读取或在 Gmail 中查看';
+    }
+    (part.parts || []).forEach(function (child) { pending.push({ part: child, depth: item.depth + 1 }); });
+  }
+  return '';
 }
 
 function attachmentParts(payload) {
@@ -172,7 +200,7 @@ function attachmentParts(payload) {
           id: id, part_id: part.partId || '', filename: part.filename || 'attachment',
           mime_type: part.mimeType || 'application/octet-stream',
           size: part.body && Number.isSafeInteger(part.body.size) ? part.body.size : null,
-          inline: /^inline(?:;|$)/i.test(partHeader(part, 'Content-Disposition')) ||
+          inline: /^inline(?:;|$)/i.test(partHeader(part, 'Content-Disposition').trim()) ||
             Boolean(partHeader(part, 'Content-ID')),
         },
         body: part.body || {},
@@ -206,6 +234,7 @@ function attachmentBase64(body, expectedSize) {
 }
 
 async function downloadAttachments(parts, args, account, callId) {
+  if (args.save_deposit !== undefined && (!args.save_deposit || typeof args.save_deposit.token !== 'string' || !args.save_deposit.token.trim())) return fail('保存目录票据无效，请重新选择保存目录后重试；未改存到其他目录');
   if (args.attachment_ids !== undefined && (!Array.isArray(args.attachment_ids) ||
       !args.attachment_ids.length || args.attachment_ids.some(function (id) {
         return typeof id !== 'string' || !parts.some(function (part) { return part.view.id === id; });
@@ -266,8 +295,12 @@ async function downloadAttachments(parts, args, account, callId) {
       } catch (_writeTransportError) {
         // The Host may have written the file before losing its reply.
       }
-      if (written && written.ok === false) throw new Error(written.message || '文件保存失败，请检查当前任务写入权限');
-      if (!written || written.ok !== true || written.bytes !== bytes.size || typeof written.path !== 'string') {
+      if (written && written.ok === false) {
+        file.root = request.root;
+        file.attempted_path = request.path;
+        throw new Error('Host 报告文件保存失败，请检查目标目录、可用空间和当前任务写入权限；先核实是否有残留文件再重试');
+      }
+      if (!written || written.ok !== true || written.bytes !== bytes.size || typeof written.path !== 'string' || !written.path || written.path.startsWith('/') || written.path.includes('\\') || written.path.split('/').some(function (segment) { return !segment || segment === '.' || segment === '..'; })) {
         file.status = 'unknown';
         file.root = request.root;
         file.attempted_path = request.path;
@@ -336,7 +369,7 @@ async function gmail(args, callId) {
       var connected = await listAccounts();
       if (!connected.ok) return connected;
       var defaultAccount = connected.result.accounts.find(function (item) { return item.is_default; });
-      if (!defaultAccount) return fail('请选择 Gmail 账号后重试');
+      if (!defaultAccount) return fail('未设置默认 Gmail 账号，请在插件详情设为默认，或通过 account 指定 gmail_accounts 返回的账号 ID 后重试');
       account = defaultAccount.id;
     }
     var full = await api({
@@ -346,8 +379,15 @@ async function gmail(args, callId) {
     });
     if (full.err) return fail(full.err);
     if (!full.data || !full.data.payload) return fail('邮件内容缺失，无法判断附件，请重新读取');
+    var mimeError = validateMime(full.data.payload);
+    if (mimeError) return fail(mimeError);
     var parts = attachmentParts(full.data.payload);
-    var body = args.action === 'read' ? extractBody(full.data.payload) : '';
+    var body = '';
+    var bodyError;
+    if (args.action === 'read') {
+      try { body = extractBody(full.data.payload); }
+      catch (_bodyError) { bodyError = '邮件正文未能完整解析，请在 Gmail 中查看正文；附件结果请单独检查'; }
+    }
     var downloads;
     if (shouldDownload) {
       downloads = await downloadAttachments(parts, args, account, callId);
@@ -361,6 +401,7 @@ async function gmail(args, callId) {
       result: {
         id: full.data.id,
         account: account,
+        body_error: bodyError,
         attachments: parts.map(function (part) { return part.view; }),
         downloads: downloads ? downloads.result : undefined,
         from: header(full.data, 'From'),
@@ -417,6 +458,7 @@ async function gmail(args, callId) {
         callId: callId,
       });
       if (sent.err) return fail(sent.err);
+      if (typeof sent.data.id !== 'string' || !sent.data.id) return fail('发送结果未知，回执缺少邮件 ID；请先检查 Gmail 已发送邮件，勿直接重复提交');
       return { ok: true, result: { sent: true, id: sent.data.id } };
     }
     var draft = await api({
@@ -427,6 +469,7 @@ async function gmail(args, callId) {
       callId: callId,
     });
     if (draft.err) return fail(draft.err);
+    if (typeof draft.data.id !== 'string' || !draft.data.id) return fail('草稿结果未知，回执缺少草稿 ID；请先检查 Gmail 草稿，勿直接重复提交');
     return { ok: true, result: { draft: true, id: draft.data.id } };
   }
 
@@ -451,7 +494,9 @@ cindy.onHostMessage(async function (message) {
       type: 'tool-result',
       callId: message.callId,
       ok: false,
-      message: 'Gmail 工具执行失败:' + (error && error.message ? error.message : String(error)),
+      message: message.args && (message.args.action === 'send' || message.args.action === 'draft')
+        ? 'Gmail 操作未正常完成，结果未知；请先核实邮件或草稿，勿直接重复提交'
+        : 'Gmail 数据处理未完成，请检查插件连接并重新读取；若涉及下载，请先检查目标目录和已返回的文件结果',
     });
   }
 });
