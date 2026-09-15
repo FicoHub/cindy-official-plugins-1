@@ -262,3 +262,30 @@ test('attachment authorization failures preserve Google details and suggest reco
     } finally { h.close(); }
   }
 });
+
+test('initial Gmail request reports authorization recovery before any attachment download', async () => {
+  const actions = [
+    { action: 'read' }, { action: 'read', download_attachments: true },
+    { action: 'download_attachments' }, { action: 'search', query: 'has:attachment' },
+    { action: 'list_labels' },
+    { action: 'send', to: 'recipient@example.test', subject: 'test', body_text: 'test' },
+    { action: 'draft', to: 'recipient@example.test', subject: 'test', body_text: 'test' },
+  ];
+  for (const status of [401, 403]) for (const args of actions) {
+    const h = harness(fixture());
+    let requests = 0;
+    h.context.cindy.fetch = async () => {
+      requests++;
+      return { ok: true, status, body: JSON.stringify({ error: { message: 'Google detail' } }) };
+    };
+    try {
+      const r = await h.run(args);
+      assert.equal(r.ok, false);
+      assert.match(r.message, new RegExp('HTTP ' + status));
+      assert.match(r.message, /Google detail/);
+      assert.match(r.message, /Gmail 插件详情重新连接/);
+      if (status === 403) assert.match(r.message, /配额或组织策略/);
+      assert.equal(requests, 1); assert.equal(h.writes.length, 0);
+    } finally { h.close(); }
+  }
+});

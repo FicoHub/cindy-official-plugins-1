@@ -40,7 +40,10 @@ async function api(opts) {
     var message = data && data.error && data.error.message
       ? data.error.message
       : (response.body || '').slice(0, 200);
-    return { err: 'Gmail API 返回 HTTP ' + response.status + ':' + message, status: response.status };
+    var detail = 'Gmail API 返回 HTTP ' + response.status + ':' + message;
+    if (response.status === 401) detail += '；账号授权可能已失效，请到 Gmail 插件详情重新连接该账号后重试';
+    if (response.status === 403) detail += '；请检查该账号的邮件访问权限；若缺少授权，请到 Gmail 插件详情重新连接。若为配额或组织策略限制，请按 Google 错误原因处理';
+    return { err: detail, status: response.status };
   }
   return { data: data };
 }
@@ -212,11 +215,7 @@ async function downloadAttachments(parts, args, account, callId) {
         } catch (_transportError) {
           throw new Error('附件网络请求未完成，未保存该文件；请检查网络连接后重试此附件，无需仅因此重新连接账号');
         }
-        if (response.err) {
-          if (response.status === 401) throw new Error(response.err + '；账号授权可能已失效，请到 Gmail 插件详情重新连接该账号后重试');
-          if (response.status === 403) throw new Error(response.err + '；请检查该账号的邮件访问权限；若缺少授权，请到 Gmail 插件详情重新连接。若为配额或组织策略限制，请按 Google 错误原因处理');
-          throw new Error(response.err);
-        }
+        if (response.err) throw new Error(response.err);
         body = response.data;
       }
       var bytes = attachmentBase64(body, part.view.size);
