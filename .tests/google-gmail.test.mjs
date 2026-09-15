@@ -64,8 +64,40 @@ test('read returns nested attachments without putting attachment text in the bod
     assert.equal(r.ok, true); assert.equal(r.result.body, 'actual body');
     assert.equal(r.result.attachments.length, 3); assert.equal(r.result.attachments[2].inline, true);
     assert.equal(h.calls.length, 1); assert.equal(h.writes.length, 0);
-    assert.equal(r.result.account, 'account-a');
+    assert.equal(h.calls[0].authAccount, undefined);
   } finally { h.close(); }
+});
+
+test('plain reads retain Host default credentials without consulting account metadata', async () => {
+  for (const mode of ['no-default', 'http-error', 'network-error']) {
+    const h = harness(fixture(), { accounts: [{ id: 'account-a', isDefault: false }] });
+    let metadataRequests = 0;
+    const original = h.context.fetch;
+    h.context.fetch = async () => {
+      metadataRequests++;
+      if (mode === 'http-error') return { ok: false, status: 503 };
+      if (mode === 'network-error') throw new Error('Account metadata unavailable');
+      return original();
+    };
+    try {
+      const r = await h.run({ action: 'read' });
+      assert.equal(r.ok, true); assert.equal(r.result.body, 'actual body');
+      assert.equal(r.result.attachments.length, 3);
+      assert.equal(h.calls[0].authAccount, undefined);
+      assert.equal(metadataRequests, 0); assert.equal(h.writes.length, 0);
+    } finally { h.close(); }
+  }
+});
+
+test('missing message id names the requested action before making any request', async () => {
+  for (const action of ['read', 'download_attachments']) {
+    const h = harness(fixture());
+    try {
+      const r = await h.run({ action, message_id: undefined });
+      assert.equal(r.ok, false); assert.equal(r.message, action + ' 需要 message_id');
+      assert.equal(h.calls.length, 0); assert.equal(h.writes.length, 0);
+    } finally { h.close(); }
+  }
 });
 
 test('read downloads remote and embedded files byte-for-byte, pins account and uses live host call', async () => {

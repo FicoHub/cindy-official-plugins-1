@@ -282,9 +282,11 @@ async function gmail(args, callId) {
   }
 
   if (args.action === 'read' || args.action === 'download_attachments') {
-    if (!args.message_id) return fail('read 需要 message_id');
-    // Pin the default once so a settings change cannot switch accounts mid-download.
-    if (!account) {
+    if (!args.message_id) return fail(args.action + ' 需要 message_id');
+    var shouldDownload = args.action === 'download_attachments' || args.download_attachments === true;
+    // Plain reads retain Host default-account resolution. Downloads pin the account
+    // once so a settings change cannot switch accounts between Gmail requests.
+    if (shouldDownload && !account) {
       var connected = await listAccounts();
       if (!connected.ok) return connected;
       var defaultAccount = connected.result.accounts.find(function (item) { return item.is_default; });
@@ -301,7 +303,7 @@ async function gmail(args, callId) {
     var parts = attachmentParts(full.data.payload);
     var body = args.action === 'read' ? extractBody(full.data.payload) : '';
     var downloads;
-    if (args.action === 'download_attachments' || args.download_attachments === true) {
+    if (shouldDownload) {
       downloads = await downloadAttachments(parts, args, account, callId);
       if (!downloads.ok) return downloads;
     }
