@@ -16,6 +16,110 @@ const workerPath = path.join(root, 'taptap-cli', 'node', 'worker.cjs');
 const manifest = JSON.parse(
   fs.readFileSync(path.join(root, 'taptap-cli', 'ghost.json'), 'utf8'),
 );
+
+// A stand-in for the installed CLI, so the discovery, risk and argument paths
+// can be exercised deterministically (CI has no taptap-cli). It answers the
+// four calls the worker makes — `__complete`, `<command> --help`, `schema` and
+// `aliases` — with a canned tree shaped like the real one: `ai-image` only
+// reachable through completion, `+` subcommands carrying their own risk, and a
+// container command (`materials`) whose risk lives on its subcommand.
+const FIXTURE_TREE = {
+  '': [
+    ['app', 'app API operations'],
+    ['asset-library', 'asset-library API operations'],
+    ['dashboard-stats', 'dashboard-stats API operations'],
+    ['stats:get', 'Query dashboard stats metrics'],
+    ['materials', 'Inspect local game materials'],
+    ['task', 'List, inspect, resume, or cancel long-running upload tasks'],
+    ['update', 'Update taptap-cli to the latest version'],
+    ['auth', 'Manage TapTap CLI login credentials'],
+    ['overview', 'Summarize login, visible developers, and visible games'],
+    ['version', 'Print the CLI version'],
+  ],
+  app: [
+    ['+bind-spark-version', 'Bind a Spark version'],
+    ['+list', 'List games visible under a developer account'],
+    ['create-app', 'Create a game draft'],
+    ['submit-app-review', 'Submit app edit for review'],
+  ],
+  'asset-library': [
+    ['ai-image', 'Plan and validate model-generated image materials locally'],
+    ['search-assets', 'Search the game asset library by target scene'],
+  ],
+  'asset-library ai-image': [
+    ['+plan', 'Build a model image-generation plan'],
+    ['+rules', 'Show the generation rules'],
+    ['+validate', 'Validate generated files'],
+  ],
+  materials: [['+inspect', 'Inspect a local directory or archive']],
+  task: [
+    ['+list', 'List upload tasks'],
+    ['+resume', 'Resume an upload task'],
+  ],
+};
+
+// Only commands the real CLI prints a Risk line for. `materials` and `task` are
+// containers and print none — their risk lives on the `+` subcommand.
+const FIXTURE_RISK = {
+  app: 'read',
+  'app +list': 'read',
+  'app +bind-spark-version': 'write',
+  'app submit-app-review': 'high-risk-write',
+  'asset-library ai-image +plan': 'read',
+  'asset-library ai-image +rules': 'read',
+  'asset-library ai-image +validate': 'read',
+  'materials +inspect': 'read',
+  'task +list': 'read',
+  'task +resume': 'write',
+  auth: 'write',
+  'auth status': 'read',
+  overview: 'read',
+  version: 'read',
+};
+
+const FIXTURE_SCHEMA = [
+  { name: 'app submit-app-review', description: 'Submit review', _meta: { risk: 'high-risk-write' } },
+  { name: 'app create-app', description: 'Create', _meta: { risk: 'write' } },
+  { name: 'asset-library search-assets', description: 'Search', _meta: { risk: 'read' } },
+  { name: 'dashboard-stats get-dashboard-stats', description: 'Stats', _meta: { risk: 'read' } },
+];
+
+const FIXTURE_ALIASES = [
+  { alias: 'stats:get', canonical: 'dashboard-stats get-dashboard-stats', description: 'Stats' },
+];
+
+const FIXTURE_CLI = `#!/usr/bin/env node
+const args = process.argv.slice(2);
+const tree = ${JSON.stringify(FIXTURE_TREE)};
+const risk = ${JSON.stringify(FIXTURE_RISK)};
+const schema = ${JSON.stringify(FIXTURE_SCHEMA)};
+const aliases = ${JSON.stringify(FIXTURE_ALIASES)};
+const write = (s) => process.stdout.write(s);
+if (args[0] === '__complete') {
+  const path = args.slice(1, -1).join(' ');
+  const children = tree[path] || [];
+  write(children.map((c) => c[0] + '\\t' + c[1]).join('\\n') + '\\n:0\\nCompletion ended with directive: ShellCompDirectiveNoFileComp\\n');
+  process.exit(0);
+}
+if (args.length && args[args.length - 1] === '--help') {
+  const key = args.slice(0, -1).join(' ');
+  const level = risk[key];
+  write('Usage:\\n  taptap-cli ' + key + ' [flags]\\n' + (level ? '\\nRisk: ' + level + '\\n' : ''));
+  process.exit(0);
+}
+if (args[0] === 'schema') { write(JSON.stringify({ ok: true, data: schema })); process.exit(0); }
+if (args[0] === 'aliases') { write(JSON.stringify({ ok: true, data: { aliases } })); process.exit(0); }
+write(JSON.stringify({ ok: true, data: { echo: args, workdir: process.cwd() } }));
+`;
+
+function makeFakeCli() {
+  const dir = fs.mkdtempSync(path.join(fs.realpathSync(process.env.TMPDIR || '/tmp'), 'taptap-fixture-'));
+  const bin = path.join(dir, 'taptap-cli');
+  fs.writeFileSync(bin, FIXTURE_CLI, { mode: 0o755 });
+  return bin;
+}
+
+const fakeCli = makeFakeCli();
 const workerSource = fs.readFileSync(workerPath, 'utf8');
 const mainSource = fs.readFileSync(path.join(root, 'taptap-cli', 'main.js'), 'utf8');
 const settingsSource = fs.readFileSync(path.join(root, 'taptap-cli', 'settings.html'), 'utf8') +
@@ -35,13 +139,15 @@ function shippedFiles() {
   return files.filter((file) => !/\.(png|jpg|jpeg|webp|gif)$/i.test(file));
 }
 
-// Spawn one worker per call: the worker answers on stdout and stays alive, so
-// the harness collects the single reply and tears the process down.
+// Spawn one worker for a batch of calls. The worker answers asynchronously —
+// two calls in flight finish in whichever order the CLI does — so each request
+// gets its own id and the replies come back matched to it, not in arrival order.
 function callWorker(requests) {
+  const pending = requests.map((request, index) => ({ ...request, id: index + 1 }));
   return new Promise((resolve, reject) => {
     const child = spawn(process.execPath, [workerPath], { stdio: ['pipe', 'pipe', 'pipe'] });
     let buffer = '';
-    const replies = [];
+    const byId = new Map();
     const timer = setTimeout(() => {
       child.kill();
       reject(new Error('worker did not answer in time'));
@@ -55,22 +161,23 @@ function callWorker(requests) {
         buffer = buffer.slice(index + 1);
         if (!line) continue;
         try {
-          replies.push(JSON.parse(line));
+          const reply = JSON.parse(line);
+          if (reply && reply.result !== undefined) byId.set(reply.id, reply);
         } catch (_) {
           // Protocol lines are JSON; anything else is a defect, surfaced below.
         }
       }
-      if (replies.length >= requests.length) {
+      if (byId.size >= pending.length) {
         clearTimeout(timer);
         child.kill();
-        resolve(replies);
+        resolve(pending.map((request) => byId.get(request.id)));
       }
     });
     child.on('error', (error) => {
       clearTimeout(timer);
       reject(error);
     });
-    for (const request of requests) child.stdin.write(JSON.stringify(request) + '\n');
+    for (const request of pending) child.stdin.write(JSON.stringify(request) + '\n');
   });
 }
 
@@ -79,6 +186,13 @@ const callTool = (name, extra = {}) => ({
   id: 1,
   method: 'taptap/call_tool',
   params: { name, ...extra },
+});
+
+const listTools = (category, extra = {}) => ({
+  jsonrpc: '2.0',
+  id: 1,
+  method: 'taptap/list_tools',
+  params: { ...(category ? { category } : {}), ...extra },
 });
 
 test('the plugin package declares the files it references', () => {
@@ -149,58 +263,89 @@ test('a wrong path never falls through to the auto-detected CLI', async () => {
   assert.match(workerSource, /CLI_BASENAME_RE/);
 });
 
-test('local paths must stay inside the session workdir', async () => {
-  // materials +inspect is read-only but still must not reach outside the
-  // workdir: the manual documents relative paths, so an absolute path or a ../
-  // escape is rejected before the CLI runs.
-  const workdir = '/tmp/taptap-cli-workdir';
-  const replies = await callWorker([
-    callTool('materials', { workdir, args: { _positional: ['+inspect', '/etc/passwd'] } }),
-    callTool('materials', { workdir, args: { _positional: ['+inspect', '../outside'] } }),
-  ]);
-  for (const reply of replies) {
-    assert.equal(reply.result.ok, false);
-    assert.equal(reply.result.errorCode, 'PATH_OUTSIDE_WORKDIR');
-  }
-});
-
-test('asset-library output paths are confined to the workdir', () => {
-  // asset-library ai-image +plan --output-dir and +validate's positional
-  // output-dir must go through the same workdir check as upload/materials.
-  // asset-library is a service, so its risk needs a live catalog (absent in
-  // CI); assert the confinement wiring directly instead of via the CLI.
-  const pathCommands = workerSource.match(/const PATH_COMMANDS = new Set\(\[([\s\S]*?)\]\);/);
-  assert.ok(pathCommands, 'PATH_COMMANDS must be declared');
-  assert.match(pathCommands[1], /'asset-library'/, 'asset-library must be in PATH_COMMANDS');
-
-  const pathFlags = workerSource.match(/const PATH_FLAG_KEYS = new Set\(\[([\s\S]*?)\]\);/);
-  assert.ok(pathFlags, 'PATH_FLAG_KEYS must be declared');
-  assert.match(pathFlags[1], /'output_dir'/, 'output_dir must be validated as an output path');
-  assert.match(pathFlags[1], /'output-dir'/, 'the hyphen spelling must not bypass the check');
-});
-
-test('arbitrary flag keys are rejected instead of becoming CLI flags', async () => {
-  // A control flag must be one the CLI actually implements; an unknown key must
-  // not turn into an arbitrary --flag (the argument-injection boundary). One
-  // request per worker so the async reply order cannot scramble assertions.
-  const workdir = '/tmp/taptap-cli-workdir';
+test('local file arguments are confined by the CLI, rooted at the session workdir', async () => {
+  // The CLI rejects absolute paths and `..` escapes for every local input
+  // (positional uploads, --output, --output-dir, --data @file) and resolves
+  // symlinks — stronger than a check here, and it can never drift from the
+  // flags it ships. What the worker owes that check is the directory to resolve
+  // against; without a session workdir there is no root, so the call is refused.
+  assert.match(workerSource, /cwd: options\.cwd && fs\.existsSync\(options\.cwd\) \? options\.cwd : undefined/);
   const [reply] = await callWorker([
-    callTool('materials', { workdir, args: { _positional: ['+inspect', 'dir'], evil_flag: 'x' } }),
+    callTool('materials', { cli_path: fakeCli, args: { _positional: ['+inspect', 'dir'] } }),
   ]);
   assert.equal(reply.result.ok, false);
-  assert.equal(reply.result.errorCode, 'INVALID_ARGS');
-  assert.match(reply.result.message, /未知 flag --evil-flag/);
+  assert.equal(reply.result.errorCode, 'WORKDIR_REQUIRED');
 });
 
-test('the flag whitelist is the CLI\'s real vocabulary', () => {
-  // The closed flag list is harvested from `taptap-cli <op> --help`; these are
-  // the flags the worker may mirror as --flag. Removing one would silently break
-  // a real operation, so pin the important spellings.
-  const block = workerSource.match(/const KNOWN_FLAGS = new Set\(\[([\s\S]*?)\]\);/);
-  assert.ok(block, 'KNOWN_FLAGS must be declared');
-  for (const flag of ['dry-run', 'yes', 'format', 'idempotency-key', 'scene', 'screen-orientation', 'output-dir', 'rule']) {
-    assert.match(block[1], new RegExp(`'${flag}'`), `${flag} must stay in the flag whitelist`);
-  }
+test('a subcommand marker is not mistaken for a local file', async () => {
+  // `task +list` takes no file argument; only a real operand (or --output /
+  // --data @file) needs the workdir.
+  const [reply] = await callWorker([
+    callTool('task', { cli_path: fakeCli, args: { _positional: ['+list'] } }),
+  ]);
+  assert.equal(reply.result.ok, true);
+  assert.deepEqual(reply.result.data.envelope.data.echo, ['task', '+list']);
+});
+
+test('control flags are forwarded, and the CLI owns the vocabulary', async () => {
+  // The CLI rejects flags an operation does not declare, so the worker must not
+  // keep a second copy of that list: copies drift and start rejecting flags the
+  // CLI added (kw, offline, payload-digest were all killed by such a copy).
+  const [reply] = await callWorker([
+    callTool('version', { cli_path: fakeCli, args: { kw: 'x', offline: true, page_size: 5 } }),
+  ]);
+  assert.equal(reply.result.ok, true);
+  assert.deepEqual(reply.result.data.envelope.data.echo, ['version', '--kw', 'x', '--offline', '--page-size', '5']);
+});
+
+test('the listing is read from the CLI, so nothing is missing from a table', async () => {
+  // A command that is not in the OpenAPI schema (`ai-image` is only reachable
+  // through completion) must still be discoverable, or the agent cannot reach
+  // the operations underneath it at all.
+  const [top, library, third, prefix] = await callWorker([
+    listTools('', { cli_path: fakeCli }),
+    listTools('asset-library', { cli_path: fakeCli }),
+    listTools('asset-library ai-image', { cli_path: fakeCli }),
+    listTools('up', { cli_path: fakeCli }),
+  ]);
+
+  const topNames = top.result.data.categories.map((entry) => entry.category);
+  assert.ok(topNames.includes('app'), 'top level lists the services');
+  assert.ok(!topNames.includes('dashboard-stats'), 'the data-query service stays out of the listing');
+  assert.ok(!topNames.includes('stats:get'), 'the data-query alias stays out of the listing');
+  assert.ok(!topNames.includes('update'), 'updating the user’s CLI is not a plugin operation');
+
+  const libraryNames = library.result.data.operations.map((op) => op.name);
+  assert.ok(libraryNames.includes('asset-library search-assets'), 'schema operations keep their inputSchema');
+  assert.ok(libraryNames.includes('asset-library ai-image'), 'completion children are merged in');
+
+  const thirdNames = third.result.data.operations.map((op) => op.name);
+  assert.deepEqual(thirdNames, [
+    'asset-library ai-image +plan',
+    'asset-library ai-image +rules',
+    'asset-library ai-image +validate',
+  ]);
+
+  const prefixNames = prefix.result.data.operations.map((op) => op.name);
+  assert.ok(prefixNames.includes('update') === false, 'the exclusion still applies to a prefix search');
+});
+
+test('risk comes from the CLI, so second-level commands are not gated as writes', async () => {
+  // `app +list` is a read the schema does not describe. Treating unknown
+  // commands as writes (fail closed) is safe but wrong for reads, and a
+  // hand-written table drifts; the CLI's own `Risk:` line is the authority.
+  const [read, resume, bind, submit, unknown] = await callWorker([
+    callTool('app +list', { cli_path: fakeCli, args: {} }),
+    callTool('task', { cli_path: fakeCli, args: { _positional: ['+resume'] } }),
+    callTool('app +bind-spark-version', { cli_path: fakeCli, args: {} }),
+    callTool('app submit-app-review', { cli_path: fakeCli, args: {} }),
+    callTool('app made-up-command', { cli_path: fakeCli, args: {} }),
+  ]);
+  assert.equal(read.result.ok, true, 'a read subcommand runs without a confirmation round');
+  assert.equal(resume.result.errorCode, 'CONFIRM_REQUIRED', 'task +resume is a write');
+  assert.equal(bind.result.errorCode, 'CONFIRM_REQUIRED', 'binding a Spark version is a write');
+  assert.equal(submit.result.errorCode, 'CONFIRM_REQUIRED', 'review submission is high-risk-write');
+  assert.equal(unknown.result.errorCode, 'UNKNOWN_TOOL', 'a command the CLI does not have is rejected');
 });
 
 test('every relative link in the manuals resolves inside the package', () => {
@@ -244,7 +389,8 @@ test('the data-query domain is excluded from every surface', async () => {
   // live from the CLI, so the worker filter is what actually enforces it.
   assert.match(workerSource, /EXCLUDED_SERVICES = new Set\(\['dashboard-stats'\]\)/);
   assert.match(workerSource, /if \(EXCLUDED_SERVICES\.has\(service\)\) continue;/);
-  assert.doesNotMatch(workerSource, /stats:get/, 'the stats:get shortcut must not be listed');
+  assert.match(workerSource, /excluded\.push/, 'the alias route into the service must be filtered too');
+  assert.match(workerSource, /function isExcluded/, 'every listing path must consult the exclusion');
   assert.doesNotMatch(workerSource, /'dashboard-stats':/, 'the service must not have a description entry');
 
   const manualNames = manifest.manual.items.map((item) => item.name).sort();
@@ -390,7 +536,7 @@ test('the catalogue keeps inputSchema but drops outputSchema', () => {
   assert.doesNotMatch(workerSource, /function summarizeOperation/, 'the operation summarizer must be gone');
   assert.match(workerSource, /function trimOutputSchema/, 'outputSchema must be trimmed');
   assert.match(workerSource, /const \{ outputSchema, \.\.\.rest \} = op/, 'outputSchema must be dropped');
-  assert.match(workerSource, /operations: ops\.map\(trimOutputSchema\)/, 'drill-down trims outputSchema');
+  assert.match(workerSource, /\.map\(trimOutputSchema\)/, 'drill-down trims outputSchema');
 });
 
 test('the rules carry a concrete call example', () => {
@@ -427,15 +573,15 @@ test('a write operation is refused until the user confirms', async () => {
 });
 
 test('every operation with a write risk declares one', () => {
-  // Regression guard: a head whose risk is missing silently passes the gate.
-  // The lookup must fail closed, so an unlisted tool head is treated as a write.
-  assert.match(workerSource, /TOOL_HEAD_RISKS\.get\(name\) \|\| 'write'/);
-  for (const op of ['auth login-start', 'auth login-wait', 'auth logout']) {
+  // Regression guard: a command whose risk cannot be established silently
+  // passes the gate, so the lookup must fail closed. The two heads the worker
+  // orchestrates are the only ones with no CLI metadata to read.
+  assert.match(workerSource, /if \(!risk\) risk = 'write';/, 'an unresolved risk must fail closed');
+  for (const op of ['auth login-start', 'auth login-wait']) {
     assert.match(workerSource, new RegExp(`\\['${op}', 'write'\\]`), `${op} must be declared a write`);
   }
-  for (const op of ['auth status', 'auth qrcode', 'overview', 'doctor', 'version']) {
-    assert.match(workerSource, new RegExp(`\\['${op}', 'read'\\]`), `${op} must be declared a read`);
-  }
+  assert.match(workerSource, /riskPathTokens\(tokens, args\)/,
+    'the risk lookup must see the `+` subcommand a call actually names');
 });
 
 test('a read-only session refuses writes even with yes:true', async () => {

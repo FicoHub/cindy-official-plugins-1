@@ -357,10 +357,17 @@ function getAliases(runOpts) {
       if (!env || env.ok !== true || !env.data || !Array.isArray(env.data.aliases)) {
         throw new Error('CLI 快捷命令格式异常');
       }
-      return env.data.aliases.filter((a) => {
-        const canonical = a && typeof a.canonical === 'string' ? a.canonical : '';
-        return !EXCLUDED_SERVICES.has(canonical.split(' ')[0]);
-      });
+      // Split rather than filter: callers need both the usable aliases and the
+      // names that were dropped, so the exclusion also covers the alias route
+      // into the data-query service.
+      const list = [];
+      const excluded = [];
+      for (const alias of env.data.aliases) {
+        const canonical = alias && typeof alias.canonical === 'string' ? alias.canonical : '';
+        if (EXCLUDED_SERVICES.has(canonical.split(' ')[0])) excluded.push(alias && alias.alias);
+        else list.push(alias);
+      }
+      return { list, excluded };
     })().catch((err) => {
       aliasesCache.delete(key);
       throw err;
@@ -371,14 +378,112 @@ function getAliases(runOpts) {
 }
 
 // ---------------------------------------------------------------------------
-// static surface: shortcuts, service tools, rules
+// live command tree (the CLI's own completion interface)
+//
+// `taptap-cli __complete <path> ""` answers with the children of <path>, one
+// `name<TAB>description` per line. It is the only source that knows about the
+// commands the OpenAPI schema does not list (the `+` subcommands such as
+// `app +list` and the third-level `asset-library ai-image +plan`), which is why
+// the listing is built from it instead of from a hand-written table.
+//
+// The last argument is the partial word being completed, so an empty string
+// means "everything at this level" and a prefix turns the call into a search.
 
-// Data-query operations are deliberately not offered by this plugin. Two layers
-// enforce that: the catalog filter drops the service before it is ever listed,
-// and leaving it out of SERVICE_DESCRIPTIONS plus dropping its shortcut from
-// SHORTCUTS keeps it out of ALLOWED_HEADS, so call_tool rejects it outright
-// rather than relying on the listing to hide it.
+const treeCache = new Map();
+
+function parseComplete(stdout) {
+  const children = [];
+  for (const line of String(stdout || '').split('\n')) {
+    if (!line || line.startsWith(':') || line.startsWith('Completion ended')) continue;
+    const tab = line.indexOf('\t');
+    const name = (tab >= 0 ? line.slice(0, tab) : line).trim();
+    if (!name) continue;
+    children.push({ name, description: tab >= 0 ? line.slice(tab + 1).trim() : '' });
+  }
+  return children;
+}
+
+async function completePath(runOpts, tokens) {
+  const options = runOpts || {};
+  const key = (options.cliPath || '') + ' ' + tokens.join(' ');
+  if (!treeCache.has(key)) {
+    const promise = (async () => {
+      const res = await runBinary(['__complete'].concat(tokens, ['']), {
+        timeoutMs: 120 * 1000,
+        label: '读取命令树',
+        cliPath: options.cliPath,
+        cwd: options.cwd,
+      });
+      if (res.cliUnavailable) {
+        const err = new Error(res.message);
+        err.code = res.cliErrorCode;
+        throw err;
+      }
+      // A completion that fails is not fatal for the caller: the tree only
+      // widens discovery, so an unknown path simply has no children.
+      if (res.code !== 0) return [];
+      return parseComplete(res.stdout);
+    })().catch((err) => {
+      treeCache.delete(key);
+      throw err;
+    });
+    treeCache.set(key, promise);
+  }
+  return treeCache.get(key);
+}
+
+// ---------------------------------------------------------------------------
+// per-command risk (from the CLI's own help output)
+//
+// Every command prints a `Risk: read|write|high-risk-write` line in `--help`
+// (the CLI documents this contract in `taptap-cli app --help`), including the
+// `+` subcommands the OpenAPI schema does not cover. Reading risk here is what
+// keeps the write gate working for commands that have no `_meta.risk`, without
+// a hand-maintained table that drifts every time the CLI gains a command.
+
+const riskCache = new Map();
+
+async function helpRisk(runOpts, tokens) {
+  const options = runOpts || {};
+  const key = (options.cliPath || '') + ' ' + tokens.join(' ');
+  if (!riskCache.has(key)) {
+    const promise = (async () => {
+      const res = await runBinary(tokens.concat(['--help']), {
+        timeoutMs: 60 * 1000,
+        label: '读取命令风险级别',
+        cliPath: options.cliPath,
+        cwd: options.cwd,
+      });
+      if (res.cliUnavailable) {
+        const err = new Error(res.message);
+        err.code = res.cliErrorCode;
+        throw err;
+      }
+      const match = String(res.stdout || '').match(/^Risk:\s*([a-z-]+)/mi);
+      return match ? match[1].toLowerCase() : null;
+    })().catch((err) => {
+      riskCache.delete(key);
+      throw err;
+    });
+    riskCache.set(key, promise);
+  }
+  return riskCache.get(key);
+}
+
+// ---------------------------------------------------------------------------
+// static surface: descriptions, rules
+
+// Data-query operations are deliberately not offered by this plugin. The
+// exclusion is a single denylist entry: the catalog filter drops the service
+// before it is listed, the alias filter drops `stats:get` (its canonical target
+// is dashboard-stats), the tree filter drops it from discovery, and call_tool
+// rejects it outright rather than relying on the listing to hide it.
 const EXCLUDED_SERVICES = new Set(['dashboard-stats']);
+
+// Commands the agent must not run through the plugin: updating the user's own
+// installation is a machine-level action the user performs in a terminal, not
+// part of a TapTap business operation.
+const EXCLUDED_COMMANDS = new Set(['update']);
 
 const SERVICE_DESCRIPTIONS = {
   app: '游戏资料、包体槽位、版本生命周期、审核与发布',
@@ -389,55 +494,41 @@ const SERVICE_DESCRIPTIONS = {
   'test-plan': 'CBT/OBT 测试计划、招募、资格批次与激活码',
 };
 
-// Non-alias top-level shortcuts (upload / materials / task / test-qr-code ...).
-// The colon aliases (game:create, audit:submit, ...) are read live from
-// `taptap-cli aliases` via getAliases instead of being hand-listed here.
-const SHORTCUTS = [
-  { name: 'test-qr-code', risk: 'write', description: '生成自测二维码 PNG(--output 指定文件路径)' },
-  { name: 'upload', risk: 'write', description: '上传一张图片并收录进素材库(需 idempotency_key)' },
-  { name: 'upload-video', risk: 'write', description: '上传视频(scene 决定回填目标字段)' },
-  { name: 'upload-apk', risk: 'write', description: '上传 APK 并创建包体记录' },
-  { name: 'upload-pc-package', risk: 'write', description: '上传 Windows 包(不带槽位绑定)' },
-  { name: 'upload-h5-package', risk: 'write', description: '上传 H5 zip 并创建 H5 版本' },
-  { name: 'materials', risk: 'read', description: '只读盘点本地目录/压缩包中的可上传物料(+inspect)' },
-  { name: 'task', risk: 'read', description: '查看/恢复长任务上传(+list / +get / +resume)' },
-];
+// Chinese display descriptions for the commands an agent reaches most often.
+// Display-only: nothing here decides access or risk, a missing entry falls back
+// to the CLI's own description, and an entry the CLI no longer ships is never
+// shown. Discovery, risk and the write gate all come from the CLI at runtime.
+const DESCRIPTION_OVERLAY = {
+  overview: '一次查看登录态、可见厂商、游戏样例和下一步建议',
+  doctor: '检查 CLI 配置、凭证与连通性',
+  status: '检查 Capability API 可达性',
+  config: '查看本地 CLI 配置与运行策略',
+  profile: '查看/切换服务器 profile',
+  event: '消费与管理实时事件',
+  version: '查看 CLI 版本',
+  aliases: '列出友好快捷命令允许清单',
+  schema: '查看某个操作的输入输出 schema(如 schema app save-changes)',
+  'test-qr-code': '生成自测二维码 PNG(--output 指定文件路径)',
+  upload: '上传一张图片并收录进素材库(需 idempotency_key)',
+  'upload-video': '上传视频(scene 决定回填目标字段)',
+  'upload-apk': '上传 APK 并创建包体记录',
+  'upload-pc-package': '上传 Windows 包(不带槽位绑定)',
+  'upload-h5-package': '上传 H5 zip 并创建 H5 版本',
+  materials: '只读盘点本地目录/压缩包中的可上传物料(+inspect)',
+  task: '查看/恢复长任务上传(+list / +get / +resume)',
+  auth: '登录授权、登录态与凭证管理',
+  skills: '读取 CLI 内嵌的官方手册(list / read)',
+  help: '查看任意命令的帮助',
+};
 
-const SERVICE_TOOLS = [
-  { name: 'overview', risk: 'read', description: '一次查看登录态、可见厂商、游戏样例和下一步建议' },
-  { name: 'doctor', risk: 'read', description: '检查 CLI 配置、凭证与连通性' },
-  { name: 'status', risk: 'read', description: '检查 Capability API 可达性' },
-  { name: 'config', risk: 'read', description: '查看本地 CLI 配置与运行策略' },
-  { name: 'profile', risk: 'read', description: '查看/切换服务器 profile' },
-  { name: 'event', risk: 'read', description: '消费与管理实时事件' },
-  { name: 'version', risk: 'read', description: '查看 CLI 版本' },
-  { name: 'aliases', risk: 'read', description: '列出友好快捷命令允许清单' },
-  { name: 'schema', risk: 'read', description: '查看某个操作的输入输出 schema(如 schema app save-changes)' },
-];
-
-const ALLOWED_HEADS = new Map();
-for (const [service, description] of Object.entries(SERVICE_DESCRIPTIONS)) {
-  // asset-library has three-token operations (asset-library ai-image +rules /
-  // +plan / +validate).
-  const maxTokens = service === 'asset-library' ? 3 : 2;
-  ALLOWED_HEADS.set(service, { kind: 'service', maxTokens, description });
-}
-for (const shortcut of SHORTCUTS) {
-  ALLOWED_HEADS.set(shortcut.name, { kind: 'shortcut', maxTokens: 1, description: shortcut.description });
-}
-for (const tool of SERVICE_TOOLS) {
-  ALLOWED_HEADS.set(tool.name, { kind: 'tool', maxTokens: tool.name === 'schema' ? 3 : 1, description: tool.description });
-}
-ALLOWED_HEADS.set('auth', { kind: 'tool', maxTokens: 2, description: '登录凭证管理(login/logout/qrcode/status)' });
-
-// Shortcut names carry a colon (game:create, audit:submit); service tokens
-// are space-separated. Allow the colon so shortcuts resolve, while the
-// ALLOWED_HEADS whitelist still rejects anything unknown.
+// Command-path tokens: the head may carry a colon (`game:create`), the `+`
+// subcommands start with `+`, and everything is space-separated.
 const TOKEN_RE = /^[a-z0-9+][a-z0-9+._:-]*$/i;
 
 const GLOBAL_RULES = [
   '写门禁:risk 为 write / high-risk-write 的操作,必须先向用户说明参数与影响并取得明确同意;先用 dry_run:true 预览,再用完全相同的参数加 yes:true 执行。未确认就带 yes 的调用会被拒绝。--yes 不代表用户同意协议;遇到服务端 required_consents 只展示 agreement.name 与 agreement.url。',
-  '参数:scope 字段(developer_id / app_id)直接传,worker 映射成 --dev-id / --app-id;其余业务字段必须放进 args.data(JSON 对象);除 scope 和 data 外的键都是控制 flag(如 dry_run / yes / idempotency_key / format),透传成 --dry-run / --yes 等;快捷命令的位置参数(如文件路径)放 args._positional 数组;args._help:true 可查看某命令的 --help。list_tools 下钻不含 outputSchema,需要某操作的输出结构时用 call_tool(name:"schema", args:{_positional:[service, method]}) 查完整输入输出。',
+  '参数:scope 字段(developer_id / app_id)直接传,worker 映射成 --dev-id / --app-id;其余业务字段必须放进 args.data(JSON 对象);除 scope 和 data 外的键都是控制 flag,透传成 --flag,合法性由 CLI 按各命令自己的 schema 校验(未知 flag 由 CLI 拒绝);位置参数(如文件路径)放 args._positional 数组。本地文件路径必须是相对会话工作目录的路径:CLI 以会话工作目录为基准校验并拒绝绝对路径与 ../ 越界。',
+  '发现命令:list_tools() 给顶层命令;list_tools(category:"<命令路径>") 逐层下钻(如 category:"asset-library",再 category:"asset-library ai-image");不确定命令名时直接传前缀搜索(如 category:"up")。某命令的完整帮助(含全部 flag)用 call_tool(name:"<命令>", args:{_help:true})。list_tools 下钻不含 outputSchema,需要某操作的输出结构时用 call_tool(name:"schema", args:{_positional:[service, method]}) 查完整输入输出。',
   '调用示例:先 list_tools(category) 看该域操作与参数(enum=可选值、pattern=格式、required=true=必填),再 call_tool。例——创建冒险游戏:call_tool(name:"app create-app", args:{developer_id:"1001", data:{title:"我的游戏", category:"adventure", package_type:"apk", developer_role:"developer"}, dry_run:true});用户确认后同参数加 yes:true。务必按 inputSchema 的 enum 取值、按 pattern 校验格式,不要猜值。',
   '输出:成功返回的 data 是 CLI 的 JSON envelope(顶层 ok / data / error)。业务失败以 ok:false 返回,message 含 error.type / error.message / error.hint。不要手动传 json / format flag,输出已默认结构化(默认文本的命令如 auth status 由插件自动补 --json)。',
   '失败三态:失败结果带 `execution_state` 字段,只有两个取值。`not_executed` 表示操作没有生效,可按 message 修正参数后重试;`unknown` 表示写操作可能已经在服务端生效,必须先核对实际状态(上传类用 task +list 查看已有任务)再决定是否重试,禁止直接重跑。',
@@ -481,74 +572,168 @@ function trimOutputSchema(op) {
   return rest;
 }
 
+function overlayDescription(name, fallback) {
+  return DESCRIPTION_OVERLAY[name] || fallback || '';
+}
+
+// Commands the plugin refuses to surface, by command name or by the canonical
+// target of an alias (`stats:get` -> dashboard-stats).
+async function exclusionIndex(runOpts) {
+  const index = { names: new Set([].concat([...EXCLUDED_SERVICES], [...EXCLUDED_COMMANDS])), aliases: new Map() };
+  try {
+    const aliases = await getAliases(runOpts);
+    for (const alias of aliases.list) {
+      if (alias && alias.alias) index.aliases.set(alias.alias, alias.canonical || '');
+    }
+    for (const name of aliases.excluded) index.names.add(name);
+  } catch (_) {
+    // The alias list only refines the filter; discovery must not fail over it.
+  }
+  return index;
+}
+
+function isExcluded(index, name) {
+  if (index.names.has(name)) return true;
+  const canonical = index.aliases.get(name);
+  return Boolean(canonical) && EXCLUDED_SERVICES.has(canonical.split(' ')[0]);
+}
+
+// Children of a command path. An exact path answers with its children; a path
+// the CLI does not recognise is retried as a prefix search on the last token,
+// so `list_tools(category:"up")` finds the upload* commands. `exact` tells the
+// caller whether the entries are children of the path (which need it prefixed
+// to form a callable name) or top-level commands in their own right.
+async function childrenAt(runOpts, tokens) {
+  const children = await completePath(runOpts, tokens);
+  if (children.length || !tokens.length) return { children, exact: true };
+  const prefix = tokens[tokens.length - 1];
+  const siblings = await completePath(runOpts, tokens.slice(0, -1));
+  return { children: siblings.filter((child) => child.name.startsWith(prefix)), exact: false };
+}
+
 async function listTools(params) {
   const runOpts = runOptions(params);
   const category = params && typeof params.category === 'string' ? params.category.trim() : '';
+  const rules = category === 'auth' ? AUTH_RULES.concat(GLOBAL_RULES) : GLOBAL_RULES.slice();
+
+  let index;
+  try {
+    index = await exclusionIndex(runOpts);
+  } catch (err) {
+    return catalogFailure(err);
+  }
+
+  // No category: the CLI's own top level, minus the excluded commands. The
+  // listing is read live, so a command the CLI gains shows up without a plugin
+  // release.
   if (!category) {
-    let services;
-    let aliases;
+    let children;
     try {
-      services = await getCatalog(runOpts);
-      aliases = await getAliases(runOpts);
+      children = await completePath(runOpts, []);
     } catch (err) {
       return catalogFailure(err);
     }
-    const categories = [
-      { category: 'overview', count: 1, description: '登录态与游戏总览(只读,推荐起点)' },
-      { category: 'auth', count: 5, description: '登录授权、登录态与凭证管理' },
-    ];
-    for (const [service, ops] of services) {
-      categories.push({ category: service, count: ops.length, description: SERVICE_DESCRIPTIONS[service] || service + ' API operations' });
-    }
-    categories.push({ category: 'shortcuts', count: aliases.length + SHORTCUTS.length, description: '端到端快捷命令:创建游戏、提审、上传图片/视频/APK/Windows/H5、素材盘点' });
-    categories.push({ category: 'service-tools', count: SERVICE_TOOLS.length, description: '诊断、profile、schema 查询等服务工具' });
     return {
       ok: true,
       data: {
-        categories,
-        rules: GLOBAL_RULES,
-        hint: '传 category 查看该类目下的操作明细与类目规则;第一次做业务前建议先读手册 execution-rules。',
+        categories: children
+          .filter((child) => child.name && !isExcluded(index, child.name))
+          .map((child) => {
+            const entry = {
+              category: child.name,
+              description: overlayDescription(child.name, child.description),
+            };
+            if (SERVICE_DESCRIPTIONS[child.name]) entry.kind = 'service';
+            if (index.aliases.has(child.name)) entry.alias_of = index.aliases.get(child.name);
+            return entry;
+          }),
+        rules,
+        hint: '传 category 下钻:先看子命令,再逐层深入(如 category:"asset-library",然后 category:"asset-library ai-image")。' +
+          '不确定命令名时可直接传前缀搜索(如 category:"up")。' +
+          '某命令的完整帮助用 call_tool(name:"<命令>", args:{_help:true})。',
       },
     };
   }
 
-  const rules = GLOBAL_RULES.slice();
-  if (category === 'auth') rules.unshift(...AUTH_RULES);
-
-  if (category === 'overview') {
-    return { ok: true, data: { category, rules, operations: SERVICE_TOOLS.slice(0, 1) } };
-  }
-  if (category === 'auth') {
-    return { ok: true, data: { category, rules, operations: AUTH_OPERATIONS } };
-  }
-  if (category === 'shortcuts') {
-    let aliases;
-    try {
-      aliases = await getAliases(runOpts);
-    } catch (err) {
-      return catalogFailure(err);
-    }
-    return { ok: true, data: { category, rules, operations: [...aliases, ...SHORTCUTS] } };
-  }
-  if (category === 'service-tools') {
-    return { ok: true, data: { category, rules, operations: SERVICE_TOOLS } };
-  }
-
-  let services;
-  try {
-    services = await getCatalog(runOpts);
-  } catch (err) {
-    return catalogFailure(err);
-  }
-  const ops = services.get(category);
-  if (!ops) {
+  const tokens = category.split(/\s+/);
+  if (!tokens.every((t) => TOKEN_RE.test(t))) {
     return {
       ok: false,
       errorCode: 'UNKNOWN_CATEGORY',
-      message: '未知类目 ' + category + ';可用类目见 list_tools() 概览',
+      message: '未知类目 "' + category + '";命令名不能包含空格以外的特殊字符。用 list_tools() 看顶层命令。',
     };
   }
-  return { ok: true, data: { category, rules, operations: ops.map(trimOutputSchema) } };
+  if (isExcluded(index, tokens[0])) {
+    return {
+      ok: false,
+      errorCode: 'UNKNOWN_CATEGORY',
+      message: '"' + tokens[0] + '" 不在本插件提供的范围内(数据查询与 CLI 自更新不由本插件提供)。用 list_tools() 看可用命令。',
+    };
+  }
+
+  let found;
+  try {
+    found = await childrenAt(runOpts, tokens);
+  } catch (err) {
+    return catalogFailure(err);
+  }
+  const subcommands = found.children.filter(
+    (child) => child.name && child.name.charAt(0) !== '-' && !isExcluded(index, child.name),
+  );
+  const flags = found.children
+    .filter((child) => child.name && child.name.charAt(0) === '-')
+    .map((child) => child.name);
+
+  // Service levels also carry the OpenAPI schema (inputSchema + risk), which the
+  // completion tree does not know about. Merge both, schema first, no duplicates.
+  let operations = [];
+  if (tokens.length === 1 && SERVICE_DESCRIPTIONS[tokens[0]]) {
+    try {
+      const services = await getCatalog(runOpts);
+      operations = (services.get(tokens[0]) || []).map(trimOutputSchema);
+    } catch (err) {
+      return catalogFailure(err);
+    }
+  }
+  if (tokens[0] === 'auth') {
+    const known = new Set(AUTH_OPERATIONS.map((op) => op.name));
+    operations = AUTH_OPERATIONS.concat(operations.filter((op) => !known.has(op.name)));
+  }
+
+  if (!subcommands.length && !operations.length) {
+    return {
+      ok: true,
+      data: {
+        category,
+        rules,
+        operations: [],
+        flags,
+        hint: '该命令没有子命令。用 call_tool(name:"' + category + '", args:{_help:true}) 查看完整帮助与选项。',
+      },
+    };
+  }
+
+  const covered = new Set(operations.map((op) => op.name.split(' ').pop()));
+  const childrenOps = subcommands
+    .filter((child) => !covered.has(child.name))
+    .map((child) => ({
+      // A child of the requested path needs that path to be callable; a
+      // prefix-search hit is already a full command name.
+      name: found.exact ? category + ' ' + child.name : child.name,
+      description: overlayDescription(child.name, child.description),
+      drill: true,
+    }));
+
+  return {
+    ok: true,
+    data: {
+      category,
+      rules,
+      operations: operations.concat(childrenOps),
+      hint: '带 drill:true 的条目还有下一层,用 list_tools(category:"<完整命令>") 继续;' +
+        '参数不确定时用 call_tool(name:"<命令>", args:{_help:true}) 看完整帮助。',
+    },
+  };
 }
 
 const AUTH_OPERATIONS = [
@@ -688,114 +873,62 @@ function briefFailure(res, env) {
 // ---------------------------------------------------------------------------
 // call_tool
 
-const SHORTCUT_RISKS = new Map(SHORTCUTS.map((s) => [s.name, s.risk]));
-
-// Heads of kind "tool" are not in the service catalog, so their risk has to be
-// declared here. The lookup below fails closed: an unlisted tool head is
-// treated as a write rather than silently passing the confirmation gate.
-const TOOL_HEAD_RISKS = new Map([
-  ['overview', 'read'],
-  ['doctor', 'read'],
-  ['status', 'read'],
-  ['config', 'read'],
-  ['profile', 'read'],
-  ['event', 'read'],
-  ['version', 'read'],
-  ['aliases', 'read'],
-  ['schema', 'read'],
-  ['auth login-start', 'write'],
-  ['auth login-wait', 'write'],
-  ['auth logout', 'write'],
-  ['auth status', 'read'],
-  ['auth qrcode', 'read'],
-]);
-
 // The CLI's input model (cmd/openapi/openapi.go): a service operation exposes
 // only `--dev-id` and `--app-id` as scope flags (with those short names), and
 // every business field goes inside one `--data` JSON. The two scope names are
 // the CLI's fixed convention (matching the schema's developer_id / app_id),
-// not something the plugin invents. Every other top-level key the agent passes
-// is a control flag, and it must be one of the CLI's real flags (KNOWN_FLAGS
-// below): an arbitrary key must not become an arbitrary CLI flag, which would
-// reopen the argument-injection boundary. Business fields stay inside `--data`
-// and are validated by the CLI's own inputSchema, which the plugin re-encodes
-// only as a closed flag list, never as a per-operation field table.
+// not something the plugin invents. Every other top-level key is a control flag
+// mirrored as `--<flag>`: the CLI validates flags against the operation's own
+// schema and rejects anything it does not define (`unknown flag "--x"`), so the
+// plugin does not keep a second, drift-prone copy of that vocabulary.
 const SCOPE_FLAG = {
   developer_id: 'dev-id',
   dev_id: 'dev-id',
   app_id: 'app-id',
 };
 
-// The CLI's complete top-level flag vocabulary, harvested from
-// `taptap-cli <op> --help` across every schema op, shortcut, and `+`
-// subcommand. Scope (`dev-id` / `app-id`) and `data` are handled structurally
-// above; every other key is mirrored as `--<flag>`. This closed set is what the
-// CLI actually accepts, so an unknown key is rejected here rather than passed
-// through to a CLI that would reject it anyway.
-const KNOWN_FLAGS = new Set([
-  'app-id', 'base-package-id', 'color', 'context', 'count', 'data', 'dev-id',
-  'dry-run', 'format', 'help', 'idempotency-key', 'json', 'launch-arg',
-  'launch-exe', 'layout', 'locale', 'manifest', 'output', 'output-dir', 'page',
-  'page-all', 'page-delay', 'page-limit', 'page-size', 'prompt', 'rule',
-  'run-id', 'scene', 'screen-orientation', 'style', 'type', 'version',
-  'windows-branch', 'yes',
+// The two heads the worker orchestrates itself (see login orchestration below),
+// so their risk is not discoverable from any `--help` output.
+const ORCHESTRATED_RISKS = new Map([
+  ['auth login-start', 'write'],
+  ['auth login-wait', 'write'],
 ]);
 
-// Commands that take a local file path as a positional argument. Their path
-// must stay inside the host-authorized session workdir, otherwise an agent
-// could read or upload arbitrary files outside the workspace.
-const PATH_COMMANDS = new Set([
-  'upload', 'upload-video', 'upload-apk', 'upload-pc-package', 'upload-h5-package',
-  'materials', 'test-qr-code', 'asset-library',
-]);
-
-// Flag keys whose value is a local output path (e.g. test-qr-code --output,
-// asset-library ai-image +plan --output-dir). Both the underscore and hyphen
-// spellings map to the same CLI flag, so both must stay inside the workdir.
-const PATH_FLAG_KEYS = new Set(['output', 'output_dir', 'output-dir']);
-
-function checkLocalPath(p, workdir) {
-  if (typeof p !== 'string' || !p) return null;
-  if (path.isAbsolute(p)) {
-    return '文件路径不能是绝对路径:' + p + ';请把文件放到会话工作目录后用相对路径。';
-  }
-  if (!workdir) {
-    return '上传需要本地会话工作目录;当前会话没有可用的本地 workdir。';
-  }
-  const resolved = path.resolve(workdir, p);
-  const rel = path.relative(workdir, resolved);
-  if (rel === '..' || rel.startsWith('..' + path.sep) || path.isAbsolute(rel)) {
-    return '文件路径必须在会话工作目录内:' + p + ';不能用 ../ 访问工作目录外的文件。';
-  }
-  return null;
-}
-
-function validateLocalPaths(tokens, args, workdir) {
-  if (!PATH_COMMANDS.has(tokens[0])) return null;
-  const positional = args && Array.isArray(args._positional) ? args._positional : [];
-  for (const p of positional) {
-    const err = checkLocalPath(p, workdir);
-    if (err) return { errorCode: 'PATH_OUTSIDE_WORKDIR', message: err };
-  }
-  for (const key of PATH_FLAG_KEYS) {
-    const v = args && args[key];
-    if (typeof v === 'string' && v) {
-      const err = checkLocalPath(v, workdir);
-      if (err) return { errorCode: 'PATH_OUTSIDE_WORKDIR', message: err };
+// The command a call actually names. Container commands (`materials`, `task`)
+// print no risk of their own — the risk lives on the `+` subcommand — so any
+// leading `+` positionals are part of the risk path. `task +resume` is a write
+// while `task +list` is a read, and this is what tells them apart.
+function riskPathTokens(tokens, args) {
+  const path = tokens.slice();
+  if (Array.isArray(args._positional)) {
+    for (const item of args._positional) {
+      const value = String(item);
+      if (!value.startsWith('+')) break;
+      path.push(value);
     }
   }
-  return null;
+  return path;
 }
 
-// `--data @file.json` references a local file; the @path must stay inside the
-// workdir like every other local input path.
-function validateFileRefs(args, workdir) {
-  const v = args && args.data;
-  if (typeof v === 'string' && v.startsWith('@')) {
-    const err = checkLocalPath(v.slice(1), workdir);
-    if (err) return { errorCode: 'PATH_OUTSIDE_WORKDIR', message: err };
+// Local file inputs need a confinement root. The CLI confines every local path
+// (positional uploads, `--output`, `--output-dir`, `--data @file`) to its own
+// working directory, resolving `..` and symlinks — which is why the session
+// workdir is passed as the CLI's cwd. Without a workdir there is no root to
+// confine to, so calls that carry local file arguments are refused.
+function needsLocalFiles(args) {
+  if (Array.isArray(args._positional)) {
+    // `-` is a flag and `+` is a subcommand marker; everything else is an
+    // operand the CLI may resolve as a local path (a file, a directory, a zip).
+    if (args._positional.some((p) => {
+      const value = typeof p === 'string' ? p : String(p);
+      return value && !value.startsWith('-') && !value.startsWith('+');
+    })) return true;
   }
-  return null;
+  if (typeof args.data === 'string' && args.data.startsWith('@')) return true;
+  for (const key of ['output', 'output_dir', 'output-dir']) {
+    if (typeof args[key] === 'string' && args[key]) return true;
+  }
+  return false;
 }
 
 function buildArgv(tokens, args) {
@@ -835,13 +968,10 @@ function buildArgv(tokens, args) {
       else if (typeof value === 'object') { Object.assign(dataObj, value); hasData = true; }
       continue;
     }
-    // Any other key is a control flag. It must be one of the CLI's real flags
-    // (KNOWN_FLAGS) — an arbitrary key must not become an arbitrary CLI flag.
-    // Object values are JSON-encoded.
+    // Any other key is a control flag, mirrored to the CLI as `--<flag>`. The
+    // CLI rejects flags an operation does not declare, so the vocabulary is
+    // validated where it actually lives rather than in a copy here.
     const flagName = key.replace(/_/g, '-');
-    if (!KNOWN_FLAGS.has(flagName)) {
-      return { error: '未知 flag --' + flagName + ';业务字段请放进 data,可用控制 flag 见 list_tools 与 schema。' };
-    }
     const flag = '--' + flagName;
     if (seenFlags.has(flag)) return { error: '重复 flag ' + flag + ';请只传一个。' };
     seenFlags.add(flag);
@@ -872,41 +1002,6 @@ async function callTool(params) {
       message: '未知操作 "' + name + '";先用 list_tools() 看类目概览,或传 category 下钻查看可用操作。',
     };
   }
-  const headInfo = ALLOWED_HEADS.get(tokens[0]);
-  let alias = null;
-  if (!headInfo) {
-    // Not a static head. Only a single-token colon name can be a live alias, so
-    // reject everything else before consulting the CLI — otherwise an absent CLI
-    // would turn an invalid head into CLI_NOT_INSTALLED instead of UNKNOWN_TOOL.
-    if (tokens.length > 1 || tokens[0].indexOf(':') < 0) {
-      return {
-        ok: false,
-        errorCode: 'UNKNOWN_TOOL',
-        message: '未知操作 "' + name + '";先用 list_tools() 看类目概览,或传 category 下钻查看可用操作。',
-      };
-    }
-    let aliases;
-    try {
-      aliases = await getAliases(runOpts);
-    } catch (err) {
-      return catalogFailure(err);
-    }
-    alias = aliases.find((a) => a.alias === tokens[0]) || null;
-    if (!alias) {
-      return {
-        ok: false,
-        errorCode: 'UNKNOWN_TOOL',
-        message: '未知操作 "' + name + '";先用 list_tools() 看类目概览,或传 category 下钻查看可用操作。',
-      };
-    }
-  } else if (tokens.length > headInfo.maxTokens) {
-    return {
-      ok: false,
-      errorCode: 'UNKNOWN_TOOL',
-      message: '未知操作 "' + name + '";先用 list_tools() 看类目概览,或传 category 下钻查看可用操作。',
-    };
-  }
-
   // Login is orchestrated in the worker so the device code never reaches the
   // model. It is a write, so a read-only session must not start one.
   if (name === 'auth login-start' || name === 'auth login-wait') {
@@ -925,50 +1020,104 @@ async function callTool(params) {
     });
     return name === 'auth login-start' ? authLoginStart(merged) : authLoginWait(merged);
   }
+  // The raw device-code flow would hand the code to the model, so the direct
+  // command stays closed in favour of the orchestrated pair above.
+  if (name === 'auth login') {
+    return {
+      ok: false,
+      errorCode: 'UNKNOWN_TOOL',
+      execution_state: 'not_executed',
+      message: '登录请用 call_tool(name:"auth login-start"),完成授权链接展示后立即用 auth login-wait 轮询;'
+        + '插件的登录编排不把设备码交给模型。',
+    };
+  }
+
+  const index = await exclusionIndex(runOpts);
+  if (index.names.has(tokens[0]) || isExcluded(index, tokens[0])) {
+    return {
+      ok: false,
+      errorCode: 'UNKNOWN_TOOL',
+      execution_state: 'not_executed',
+      message: '"' + tokens[0] + '" 不在本插件提供的范围内(数据查询与 CLI 自更新不由本插件提供)。用 list_tools() 看可用命令。',
+    };
+  }
+
+  let alias = null;
+  if (index.aliases.has(tokens[0])) {
+    try {
+      const aliases = await getAliases(runOpts);
+      alias = aliases.list.find((a) => a.alias === tokens[0]) || null;
+    } catch (err) {
+      return catalogFailure(err);
+    }
+  }
+  // Membership is decided by the CLI's own command tree, so a command the CLI
+  // gained is callable without a plugin release. `_help` is exempt: asking for
+  // help never executes anything, and it must stay available even for a command
+  // the cached tree does not know yet.
+  if (args._help !== true && !alias) {
+    let found = false;
+    try {
+      if (tokens.length === 1) {
+        const top = await childrenAt(runOpts, []);
+        found = top.children.some((child) => child.name === tokens[0]);
+      } else {
+        const siblings = await childrenAt(runOpts, tokens.slice(0, -1));
+        found = siblings.children.some((child) => child.name === tokens[tokens.length - 1]);
+      }
+    } catch (err) {
+      return catalogFailure(err);
+    }
+    if (!found) {
+      return {
+        ok: false,
+        errorCode: 'UNKNOWN_TOOL',
+        message: '未知操作 "' + name + '";先用 list_tools() 看顶层命令,或传 category 逐层下钻(如 category:"asset-library ai-image")。',
+      };
+    }
+  }
 
   // auth status defaults to human-readable text; its documented agent contract
   // is structured JSON, so append --json unless explicitly suppressed.
   if (name === 'auth status' && args.json === undefined) args.json = true;
 
-  // risk gate: catalogued ops and aliases by their own metadata, top-level
-  // shortcuts and tools by static maps.
+  // Risk resolution, in order: the operations the worker orchestrates itself,
+  // then the CLI's own metadata (aliases resolve through their canonical
+  // operation), then the `Risk:` line of the command's `--help`. Anything still
+  // unknown fails closed to a write, so the confirmation gate never silently
+  // opens for a command nobody could classify.
   let risk = null;
-  if (alias) {
+  if (ORCHESTRATED_RISKS.has(name)) {
+    risk = ORCHESTRATED_RISKS.get(name);
+  } else if (alias) {
     try {
       const services = await getCatalog(runOpts);
-      const canonicalTokens = alias.canonical.split(' ');
-      const op = services.get(canonicalTokens[0]);
+      const op = services.get(alias.canonical.split(' ')[0]);
       const found = op && op.find((item) => item.name === alias.canonical);
-      // fail closed: an alias whose canonical op is missing or lacks risk
-      // metadata must not run unguarded.
-      risk = (found && found._meta && found._meta.risk) || 'write';
+      risk = (found && found._meta && found._meta.risk) || null;
     } catch (err) {
       return catalogFailure(err);
     }
-  } else if (headInfo.kind === 'service') {
+  } else {
     try {
       const services = await getCatalog(runOpts);
       const op = services.get(tokens[0]);
       const found = op && op.find((item) => item.name === name);
-      // fail closed: a service op that vanished from the catalog or lacks risk
-      // metadata must not run unguarded.
-      risk = (found && found._meta && found._meta.risk) || 'write';
+      risk = (found && found._meta && found._meta.risk) || null;
     } catch (err) {
       return catalogFailure(err);
     }
-  } else if (headInfo.kind === 'shortcut') {
-    risk = SHORTCUT_RISKS.get(tokens[0]) || 'read';
-    // `task +resume` resumes an upload (external side effect), unlike the
-    // read-only +list / +get, so it must be gated as a write. The resume marker
-    // arrives through the positional args (the _extra_args channel is rejected).
-    if (tokens[0] === 'task') {
-      const hasResume = Array.isArray(args._positional) && args._positional.includes('+resume');
-      if (hasResume) risk = 'write';
+    if (!risk) {
+      try {
+        risk = await helpRisk(runOpts, riskPathTokens(tokens, args));
+      } catch (err) {
+        if (err && err.code) return catalogFailure(err);
+        risk = null;
+      }
     }
-  } else if (headInfo.kind === 'tool') {
-    risk = TOOL_HEAD_RISKS.get(name) || 'write';
   }
-  if (risk && risk !== 'read' && params.read_only === true) {
+  if (!risk) risk = 'write';
+  if (risk !== 'read' && params.read_only === true) {
     return {
       ok: false,
       errorCode: 'SESSION_READ_ONLY',
@@ -976,7 +1125,11 @@ async function callTool(params) {
       message: '当前会话处于只读/计划模式,不能执行 ' + name + '(' + risk + ')。请退出只读模式后再试。',
     };
   }
-  if (risk && risk !== 'read' && args.yes !== true && args.dry_run !== true) {
+  // `_help` only prints the command's own documentation: it never executes the
+  // operation, so neither the confirmation gate nor the workdir requirement
+  // applies to it.
+  const helpOnly = args._help === true;
+  if (!helpOnly && risk !== 'read' && args.yes !== true && args.dry_run !== true) {
     return {
       ok: false,
       errorCode: 'CONFIRM_REQUIRED',
@@ -984,14 +1137,13 @@ async function callTool(params) {
       message: '操作 ' + name + ' 的风险级别是 ' + risk + ',需要先取得用户明确同意:先用 dry_run:true 预览,用户确认后再用相同参数加 yes:true 执行。',
     };
   }
-
-  const pathErr = validateLocalPaths(tokens, args, runOpts.cwd);
-  if (pathErr) {
+  if (!helpOnly && needsLocalFiles(args) && !runOpts.cwd) {
     return {
       ok: false,
-      errorCode: pathErr.errorCode,
+      errorCode: 'WORKDIR_REQUIRED',
       execution_state: 'not_executed',
-      message: pathErr.message,
+      message: '该调用包含本地文件参数,但当前会话没有可用的本地工作目录;'
+        + 'CLI 以会话工作目录为基准限定文件路径,没有它就无法安全执行。请在带本地工作目录的会话里重试。',
     };
   }
   // Reject any plugin control key other than the documented ones, so an agent
@@ -1006,16 +1158,6 @@ async function callTool(params) {
         message: '不支持的控制参数 ' + k + ';请用结构化参数(scope / data / flag 键)或 _positional 传参。',
       };
     }
-  }
-
-  const fileErr = validateFileRefs(args, runOpts.cwd);
-  if (fileErr) {
-    return {
-      ok: false,
-      errorCode: fileErr.errorCode,
-      execution_state: 'not_executed',
-      message: fileErr.message,
-    };
   }
 
   const built = buildArgv(tokens, args);

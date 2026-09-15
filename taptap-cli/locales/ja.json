@@ -4,21 +4,21 @@
   "whenToUse": "TapTap 開発者向け業務の操作:ログイン、developerId/appId の確認、ゲーム作成、掲載情報とメインパッケージの編集、画像/動画/APK/Windows/H5 のアップロード、公開資格の補完、審査の提出・取り下げ、リリース、テスト計画とアクティベーションコードの管理、素材ライブラリの検索",
   "tools": {
     "list_tools": {
-      "description": "このプラグインで実行できる TapTap 業務操作を一覧します。category を省略するとカテゴリ概要(カテゴリ名・操作数・全体の実行ルール)を返し、category を指定するとそのカテゴリ内の全操作の名称・リスクレベル・パラメータ schema・use_when/avoid_when・カテゴリ RULES を返します。固定カテゴリは overview(アカウント概要)、auth(ログインと資格情報)、shortcuts(エンドツーエンドコマンド)、service-tools(診断・profile・schema 照会)。それ以外は業務領域ごとの動的カテゴリ(app、asset-library、developer、package-management、qualification、test-plan)です。データ照会は提供しないため、ダウンロード・表示・評価・注文などの指標はカタログに現れません。ある領域の業務を初めて行う前に対象カテゴリへ絞り込んでください。",
+      "description": "このプラグインで使える TapTap 業務操作を一覧します。カタログは本機にインストールされた taptap-cli からリアルタイムに読み取るため、CLI にあるコマンドはそのまま見えます。category を省略するとトップレベルのコマンド(名前・説明・グローバル実行ルール)を返し、category を渡すと一段ずつ下へ掘れます(例: category:\"asset-library\"、次に category:\"asset-library ai-image\")。コマンド名が不確かなときは接頭辞で検索できます(例: category:\"up\")。drill:true の項目にはさらに下の階層があります。個別コマンドの完全なヘルプは call_tool の args._help:true で見ます。データ照会は対象外で、ダウンロード数・PV・評価・注文などの運用データはカタログに含まれません。",
       "parameters": {
         "/properties/category": {
-          "description": "概要が返すカテゴリ名。固定カテゴリは overview、auth、shortcuts、service-tools。動的カテゴリは app、asset-library、developer、package-management、qualification、test-plan。省略するとカテゴリ概要を返します。"
+          "description": "コマンドのパスまたは接頭辞。直前の一覧が返した値をそのまま深掘りできます(例 \"asset-library\"、\"asset-library ai-image\")。名前が不確かなときは接頭辞で検索(例 \"up\")。省略するとトップレベルを返します。"
         }
       }
     },
     "call_tool": {
-      "description": "TapTap 業務操作を 1 つ実行します。name は list_tools の戻り値から取ります(例: 'app get-app-module'、ショートカットの 'upload-apk' や 'auth login-start')。developer_id と app_id は scope フィールドとして直接渡します(--dev-id / --app-id にマップ)。それ以外の業務フィールドはすべて data に JSON オブジェクトとして入れ、scope と data 以外のキーはすべて CLI がサポートする制御フラグとして --flag にそのまま渡し(未知のフラグは拒否)、ファイルパスなどの位置引数は _positional 配列に入れます。書き込み操作は必ずユーザーの確認を得てから、まず dry_run:true でプレビューし、同一の引数に yes:true を付けて実行してください。失敗結果には execution_state フィールドが付きます:not_executed は未実行で修正後の再試行が安全、unknown は書き込みが既に反映された可能性があるため、実際の状態を確認してから再試行するか判断し、そのまま再実行しないでください。",
+      "description": "TapTap 業務操作を 1 つ実行します。name は list_tools の戻り値から取ります(例: 'app get-app-module'、サブコマンドの 'app +list'、'asset-library ai-image +plan'、'upload-apk'、'auth login-start')。developer_id と app_id は scope フィールドとして直接渡します(--dev-id / --app-id にマップ)。それ以外の業務フィールドはすべて data に JSON オブジェクトとして入れ、scope と data 以外のキーは制御フラグとして --flag に渡します(合法性は各コマンド自身の schema に基づき CLI が検証し、未知のフラグは CLI が拒否します)。ファイルパスなどの位置引数は _positional 配列に入れます。ローカルファイルのパスはセッション作業ディレクトリからの相対パスにしてください:CLI はそのディレクトリを基準に検証し、絶対パスと ../ による逸脱を拒否します。_ で始まるキーはプラグインの制御用です(_help でそのコマンドの完全なヘルプ、_timeout_seconds でタイムアウト秒数)。書き込み操作は必ずユーザーの確認を得てから、まず dry_run:true でプレビューし、同一の引数に yes:true を付けて実行してください。失敗結果には execution_state フィールドが付きます:not_executed は未実行で修正後の再試行が安全、unknown は書き込みが既に反映された可能性があるため、実際の状態を確認してから再試行するか判断し、そのまま再実行しないでください。",
       "parameters": {
         "/properties/name": {
           "description": "list_tools が返す操作名(例: 'app get-app-module')。"
         },
         "/properties/args": {
-          "description": "操作引数の JSON オブジェクト。developer_id/app_id は scope フィールドとして直接渡し(--dev-id/--app-id にマップ)、それ以外の業務フィールドは data(JSON オブジェクト)に入れます。scope と data 以外のキーはすべて CLI がサポートする制御フラグとして --flag にそのまま渡します(未知のフラグは拒否)。_ で始まるキーはプラグインの制御用で、フラグにはなりません:_positional(ファイルパスなどの位置引数の配列)、_help(そのコマンドの --help を表示)、_timeout_seconds(1 回のタイムアウト秒数、最大 870、大きなアップロード向け)。不明な場合は先に list_tools でカテゴリへ絞り込んでください。"
+          "description": "操作引数の JSON オブジェクト。developer_id/app_id は scope フィールドとして直接渡し(--dev-id/--app-id にマップ)、それ以外の業務フィールドは data(JSON オブジェクト)に入れます。scope と data 以外のキーは制御フラグとして --flag に渡し、合法性は各コマンド自身の schema に基づき CLI が検証します。_ で始まるキーはプラグインの制御用で、フラグにはなりません:_positional(ファイルパスなどの位置引数の配列。セッション作業ディレクトリからの相対パスであること)、_help(そのコマンドの --help を表示)、_timeout_seconds(1 回のタイムアウト秒数、最大 870、大きなアップロード向け)。不明な場合は先に list_tools で絞り込んでください。"
         }
       }
     }

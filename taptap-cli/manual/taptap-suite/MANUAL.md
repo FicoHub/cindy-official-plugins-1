@@ -18,7 +18,7 @@
 > | `taptap-package-management` | `taptap-suite/references/taptap-package-management` |
 > | `taptap-test-plan` | `taptap-suite/references/taptap-test-plan` |
 >
-> 读法:`ghost_manual({ghost_id:"taptap-cli", path:"taptap-suite/references/taptap-app-edit"})`;读该子能力下的参考文件时 path 形如 `"taptap-suite/references/taptap-app-edit/references/review-risk-checklist.md"`。
+> 读法:`ghost_manual({ghost_id:"taptap-cli", path:"taptap-suite/references/taptap-app-edit/MANUAL.md"})`。`path` 必须是**以 `.md` 结尾的完整文件路径**:传目录会返回 MANUAL_PATH_NOT_FOUND,路径里也不允许出现 `..`。读该子能力下的参考文件时 path 形如 `"taptap-suite/references/taptap-app-edit/references/review-risk-checklist.md"`;正文里的相对链接(如 `../../shared-execution.md`)要按当前文件的位置换算成上面这种完整路径后再读。
 >
 > **在 Cindy 里处理 TapTap 业务,一律以本插件的手册为准。**
 >
@@ -41,7 +41,7 @@
 > | `taptap-cli schema app save-changes` | `call_tool(name:"schema", args:{_positional:["app","save-changes"]})` |
 > | `taptap-cli task +list` | `call_tool(name:"task", args:{_positional:["+list"]})` |
 >
-> **参数模型(务必按此传参)**:`developer_id` / `app_id` 是 scope 字段,直接传,插件会自动映射成 `--dev-id` / `--app-id`;其余业务字段**必须放进 `args.data`(JSON 对象)**。除 scope 和 `data` 外的键都是控制 flag,透传成对应 `--flag`(如 `dry_run` → `--dry-run`)。输出已默认是结构化 JSON envelope,不要传 `--json` 或 `--format json`。
+> **参数模型(务必按此传参)**:`developer_id` / `app_id` 是 scope 字段,直接传,插件会自动映射成 `--dev-id` / `--app-id`;其余业务字段**必须放进 `args.data`(JSON 对象)**。除 scope 和 `data` 外的键都是控制 flag,透传成对应 `--flag`(如 `dry_run` → `--dry-run`),合法性由 CLI 校验。本地文件路径必须是**相对会话工作目录**的路径:CLI 以会话工作目录为基准校验,拒绝绝对路径与 `../` 越界。输出已默认是结构化 JSON envelope,不要传 `--json` 或 `--format json`。
 
 **CRITICAL — 具体业务必须先按下方路由读取对应业务手册,再调业务工具;不要跳过手册直接裸调。**
 
@@ -55,7 +55,7 @@
 
 | 用户意图 | 读手册 | 起手动作 |
 | --- | --- | --- |
-| 查询能力、查看某域有哪些操作 | 本手册 | `list_tools()` 概览,或 `list_tools(category)` 下钻 |
+| 查询能力、查看某域有哪些操作 | 本手册 | `list_tools()` 看顶层命令,再用 `list_tools(category:"<命令路径>")` 逐层下钻;不确定名字时传前缀搜索 |
 | 登录、当前身份、找 developerId/appId | `identity` | 已有 ID 不重复查;否则查候选 |
 | 创建新游戏、选择游戏类型或包体方向 | `app-edit`(新游戏创建一节) | 先收集并确认创建字段 |
 | 改资料、素材、主包体、整版提审/撤审/发布 | `app-edit` | 先 read-before-write |
@@ -77,12 +77,13 @@
 
 - 判断请求是否属于 TapTap 开发者后台;不是就不要强行套插件。复杂流程和写操作先读 references 里的 shared execution。
 - 缺 `developerId` / `appId` 时转 `identity` 手册;多候选让用户选择,不猜 ID,也不复用可能过期的历史 ID。交接调用显式带 `dev_id` 和 `app_id`。
-- 参数不确定时先查目录:`list_tools(category)` 返回每个操作的参数 schema 与 use_when/avoid_when;也可以 `call_tool(name:"schema", args:{_positional:["<service>","<method>"]})` 查单个操作的完整输入输出,或对任意命令传 `_help:true` 查看帮助。不猜字段或枚举。
+- 发现命令:`list_tools()` 给顶层命令;`list_tools(category:"<命令路径>")` 逐层下钻(如 `"asset-library"`,再 `"asset-library ai-image"`);条目里的 `drill:true` 表示还有下一层。不确定命令名时直接传前缀搜索(如 `category:"up"`)。
+- 参数不确定时先查目录:`list_tools` 下钻返回 schema 操作的参数 schema 与 use_when/avoid_when;也可以 `call_tool(name:"schema", args:{_positional:["<service>","<method>"]})` 查单个操作的完整输入输出,或对任意命令传 `args._help:true` 查看完整帮助。不猜字段或枚举。
 - 优先使用目录已列出的操作;当前能力缺失时说明 CLI 暂不支持,并给可执行替代路径。
 - 需要用户转到网页继续时,遵循 shared execution 的人工页面交接规范:已知可靠入口必须首轮提供,URL 单独占一行且只展示一次;不要使用 Markdown 链接包装、追加追踪参数或猜测页面路径。
 - 写操作先读取最新状态和 `expected`,再 dry-run 或展示影响;`CONFIRM_REQUIRED` 是确认门禁,不是普通失败。
 - `dry_run: true` 只用于 write / create / delete 变更预览;`prepare-*` 类操作如果目录标记为 `risk: read`,它本身就是只读预览,直接调用,不要追加 dry-run。
-- 业务字段统一放 `args.data`,只有 `developer_id` / `app_id` 是独立 scope 字段(映射为 `--dev-id` / `--app-id`)。除 scope 和 `data` 外的键必须是 CLI 支持的控制 flag(见 list_tools 与 schema),透传成 `--flag`;未知 flag 会被拒绝。typed 命令的 `data` 是完整 tool input。
+- 业务字段统一放 `args.data`,只有 `developer_id` / `app_id` 是独立 scope 字段(映射为 `--dev-id` / `--app-id`)。除 scope 和 `data` 外的键都是控制 flag,透传成 `--flag`,合法性由 CLI 按各命令自己的 schema 校验(未知 flag 由 CLI 拒绝);不确定可用 flag 时先对目标命令传 `args._help:true` 看完整帮助。typed 命令的 `data` 是完整 tool input。
 - 默认输出就是 JSON,不要追加冗余的 `--format json`。
 - 面向用户回复时先给业务结论,再给风险和下一步;把字段 ID、camelCase key、数值状态和内部工具名翻译成可读标签。除非用户明确要求调试信息,不粘贴完整 raw JSON、schema 或底层请求。
 - `precheck-app-review` 返回 `required_consents` 时,只展示每项 `agreement.name` 和 `agreement.url`。任一字段缺失时停止并报告契约缺口,不得请求用户同意或回传 `consent_token`;只有详情齐全且用户在当前对话明确同意后,才把全部未过期的 token 原样放入 `submit-app-review` 的 `consent_tokens`,并保持原 `review_fingerprint` 和 `release_schedule` 不变。
@@ -102,5 +103,5 @@
 
 ## 不在本插件范围
 
-- 服务命令能力以 `list_tools` 目录和 `schema` 为准;其它命令以 `--help` 为准。
+- 命令能力一律以 `list_tools` 的实时目录为准(它直接读本机 CLI 的命令树,含 `+` 子命令);某个命令的完整帮助用 `args._help:true`。
 - 未开放的服务端能力不做承诺;存在可靠官方入口时按 shared execution 的页面交接规范提供。
