@@ -907,8 +907,15 @@ const ORCHESTRATED_RISKS = new Map([
 // reference, `skills` lists and reads the manuals embedded in the CLI. Neither
 // is an operation, so their own `--help` carries no `Risk:` line and the
 // fail-closed default would drag a doc dump through the confirmation gate.
-// Their positionals are command names or manual names, never local files.
 const DOCUMENTATION_HEADS = new Set(['help', 'skills']);
+
+// Heads whose positional operands are identifiers — a service and method, a
+// manual name, a profile, an event key, a task id, a URL — rather than local
+// files. Everything else that takes an operand is assumed to name a file, so
+// the workdir requirement below fails closed for a head this list has not met.
+const IDENTIFIER_OPERAND_HEADS = new Set([
+  'auth', 'event', 'help', 'profile', 'schema', 'skills', 'task',
+]);
 
 // The command a call actually names. Container commands (`materials`, `task`,
 // `skills`) print no risk of their own — it lives on the subcommand — so a
@@ -1152,22 +1159,24 @@ async function callTool(params) {
   // operation, so neither the confirmation gate nor the workdir requirement
   // applies to it.
   const helpOnly = args._help === true;
-  if (!helpOnly && risk !== 'read' && args.yes !== true && args.dry_run !== true) {
-    return {
-      ok: false,
-      errorCode: 'CONFIRM_REQUIRED',
-      execution_state: 'not_executed',
-      message: '操作 ' + name + ' 的风险级别是 ' + risk + ',需要先取得用户明确同意:先用 dry_run:true 预览,用户确认后再用相同参数加 yes:true 执行。',
-    };
-  }
-  // `help` takes command names as positionals, never paths, and reads no files.
-  if (!helpOnly && !DOCUMENTATION_HEADS.has(tokens[0]) && needsLocalFiles(args) && !runOpts.cwd) {
+  // The workdir check runs before the confirmation gate: a call that cannot run
+  // here at all should say so, rather than ask the user to approve it first.
+  // Only heads that can actually name a local file need the confinement root.
+  if (!helpOnly && !IDENTIFIER_OPERAND_HEADS.has(tokens[0]) && needsLocalFiles(args) && !runOpts.cwd) {
     return {
       ok: false,
       errorCode: 'WORKDIR_REQUIRED',
       execution_state: 'not_executed',
       message: '该调用包含本地文件参数,但当前会话没有可用的本地工作目录;'
         + 'CLI 以会话工作目录为基准限定文件路径,没有它就无法安全执行。请在带本地工作目录的会话里重试。',
+    };
+  }
+  if (!helpOnly && risk !== 'read' && args.yes !== true && args.dry_run !== true) {
+    return {
+      ok: false,
+      errorCode: 'CONFIRM_REQUIRED',
+      execution_state: 'not_executed',
+      message: '操作 ' + name + ' 的风险级别是 ' + risk + ',需要先取得用户明确同意:先用 dry_run:true 预览,用户确认后再用相同参数加 yes:true 执行。',
     };
   }
   // Reject any plugin control key other than the documented ones, so an agent

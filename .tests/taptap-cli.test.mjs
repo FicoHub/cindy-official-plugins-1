@@ -33,6 +33,7 @@ const FIXTURE_TREE = {
     ['task', 'List, inspect, resume, or cancel long-running upload tasks'],
     ['auth', 'Manage TapTap CLI login credentials'],
     ['help', 'Help about any command'],
+    ['profile', 'Manage TapTap server profiles'],
     ['skills', 'List and read the manuals embedded in the CLI'],
     ['overview', 'Summarize login, visible developers, and visible games'],
     ['update', 'Update taptap-cli to the latest version'],
@@ -61,8 +62,13 @@ const FIXTURE_TREE = {
     ['read', 'Read one embedded manual'],
   ],
   task: [
+    ['+get', 'Show one upload task'],
     ['+list', 'List upload tasks'],
     ['+resume', 'Resume an upload task'],
+  ],
+  profile: [
+    ['list', 'List profiles'],
+    ['use', 'Select a profile'],
   ],
 };
 
@@ -83,6 +89,8 @@ const FIXTURE_RISK = {
   'auth status': 'read',
   overview: 'read',
   version: 'read',
+  'task +get': 'read',
+  'profile use': 'write',
 };
 
 const FIXTURE_SCHEMA = [
@@ -294,6 +302,30 @@ test('local file arguments are confined by the CLI, rooted at the session workdi
     callTool('materials', { cli_path: fakeCli, args: { _positional: ['+inspect', 'dir'] } }),
   ]);
   assert.equal(reply.result.ok, false);
+  assert.equal(reply.result.errorCode, 'WORKDIR_REQUIRED');
+});
+
+test('an identifier operand is not mistaken for a local file', async () => {
+  // `task +get <id>`, `profile use <name>`, `schema <service> <method>` and the
+  // like take identifiers. Demanding a workdir for them would block a call that
+  // reads no file at all.
+  const [task, profile] = await callWorker([
+    callTool('task', { cli_path: fakeCli, args: { _positional: ['+get', 'task-1'] } }),
+    callTool('profile', { cli_path: fakeCli, args: { _positional: ['use', 'default'] } }),
+  ]);
+  assert.equal(task.result.ok, true);
+  assert.deepEqual(task.result.data.envelope.data.echo, ['task', '+get', 'task-1']);
+  // …and the write gate still applies where the command is a write.
+  assert.equal(profile.result.errorCode, 'CONFIRM_REQUIRED');
+});
+
+test('a local file operand is refused before the confirmation gate', async () => {
+  // Both gates apply to `upload ./icon.png` without a workdir. Reporting the
+  // structural refusal first avoids asking the user to approve a call that
+  // cannot run in this session at all.
+  const [reply] = await callWorker([
+    callTool('upload', { cli_path: fakeCli, args: { _positional: ['./icon.png'] } }),
+  ]);
   assert.equal(reply.result.errorCode, 'WORKDIR_REQUIRED');
 });
 
