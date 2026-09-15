@@ -18,6 +18,11 @@
 > | `taptap-package-management` | `taptap-suite/references/taptap-package-management` |
 > | `taptap-test-plan` | `taptap-suite/references/taptap-test-plan` |
 >
+> **两层手册**:本插件的手册是**执行纪律层**——它规定怎么经 `call_tool` 调、写门禁怎么走、失败三态怎么读,冲突时一律以它为准。
+> 需要 CLI 自带的官方原文(安装 CLI 时内置,随 CLI 版本更新)作为**深入参考**时,用:
+> `call_tool(name:"skills", args:{_positional:["list"]})` 看清单,`call_tool(name:"skills", args:{_positional:["read","<手册名>"]})` 读取单个;
+> 读到的是 CLI 的命令行写法,执行前仍要按下方映射表转成 `call_tool`。
+>
 > 读法:`ghost_manual({ghost_id:"taptap-cli", path:"taptap-suite/references/taptap-app-edit/MANUAL.md"})`。`path` 必须是**以 `.md` 结尾的完整文件路径**:传目录会返回 MANUAL_PATH_NOT_FOUND,路径里也不允许出现 `..`。**本手册内所有链接的目标已经是 `ghost_manual` 的 path,原样传入即可**(例如 `[shared execution](taptap-suite/references/shared-execution.md)` 就读 `taptap-suite/references/shared-execution.md`),不需要再按当前文件位置换算。
 >
 > **在 Cindy 里处理 TapTap 业务,一律以本插件的手册为准。**

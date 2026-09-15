@@ -528,12 +528,12 @@ const TOKEN_RE = /^[a-z0-9+][a-z0-9+._:-]*$/i;
 const GLOBAL_RULES = [
   '写门禁:risk 为 write / high-risk-write 的操作,必须先向用户说明参数与影响并取得明确同意;先用 dry_run:true 预览,再用完全相同的参数加 yes:true 执行。未确认就带 yes 的调用会被拒绝。--yes 不代表用户同意协议;遇到服务端 required_consents 只展示 agreement.name 与 agreement.url。',
   '参数:scope 字段(developer_id / app_id)直接传,worker 映射成 --dev-id / --app-id;其余业务字段必须放进 args.data(JSON 对象);除 scope 和 data 外的键都是控制 flag,透传成 --flag,合法性由 CLI 按各命令自己的 schema 校验(未知 flag 由 CLI 拒绝);位置参数(如文件路径)放 args._positional 数组。本地文件路径必须是相对会话工作目录的路径:CLI 以会话工作目录为基准校验并拒绝绝对路径与 ../ 越界。',
-  '发现命令:list_tools() 给顶层命令;list_tools(category:"<命令路径>") 逐层下钻(如 category:"asset-library",再 category:"asset-library ai-image");不确定命令名时直接传前缀搜索(如 category:"up")。某命令的完整帮助(含全部 flag)用 call_tool(name:"<命令>", args:{_help:true})。list_tools 下钻不含 outputSchema,需要某操作的输出结构时用 call_tool(name:"schema", args:{_positional:[service, method]}) 查完整输入输出。',
+  '发现命令:list_tools() 给顶层命令;list_tools(category:"<命令路径>") 逐层下钻(如 category:"asset-library",再 category:"asset-library ai-image");不确定命令名时直接传前缀搜索(如 category:"up")。某命令的完整帮助(含全部 flag)用 call_tool(name:"<命令>", args:{_help:true}),也可以用 call_tool(name:"help", args:{_positional:["<命令>"]})。list_tools 下钻不含 outputSchema,需要某操作的输出结构时用 call_tool(name:"schema", args:{_positional:[service, method]}) 查完整输入输出。',
   '调用示例:先 list_tools(category) 看该域操作与参数(enum=可选值、pattern=格式、required=true=必填),再 call_tool。例——创建冒险游戏:call_tool(name:"app create-app", args:{developer_id:"1001", data:{title:"我的游戏", category:"adventure", package_type:"apk", developer_role:"developer"}, dry_run:true});用户确认后同参数加 yes:true。务必按 inputSchema 的 enum 取值、按 pattern 校验格式,不要猜值。',
   '输出:成功返回的 data 是 CLI 的 JSON envelope(顶层 ok / data / error)。业务失败以 ok:false 返回,message 含 error.type / error.message / error.hint。不要手动传 json / format flag,输出已默认结构化(默认文本的命令如 auth status 由插件自动补 --json)。',
   '失败三态:失败结果带 `execution_state` 字段,只有两个取值。`not_executed` 表示操作没有生效,可按 message 修正参数后重试;`unknown` 表示写操作可能已经在服务端生效,必须先核对实际状态(上传类用 task +list 查看已有任务)再决定是否重试,禁止直接重跑。',
   '身份:缺 developer_id / app_id 时先用 overview 或 developer 命令查询候选,多候选让用户选,不要猜 ID。',
-  '手册:完整业务流程与领域规范用 ghost_manual({ghost_id:"taptap-cli", path:...}) 读取,入口见 taptap-suite。',
+  '手册:完整业务流程与领域规范用 ghost_manual({ghost_id:"taptap-cli", path:...}) 读取,入口见 taptap-suite——这是本插件的执行纪律层。需要 CLI 自带的官方原文(随 CLI 版本内置)时用 call_tool(name:"skills", args:{_positional:["list"]}) 看清单、call_tool(name:"skills", args:{_positional:["read","<手册名>"]}) 读取,作为深入参考;两者冲突时以本插件手册的执行纪律为准。',
 ];
 
 const AUTH_RULES = [
@@ -903,23 +903,30 @@ const ORCHESTRATED_RISKS = new Map([
   ['auth login-wait', 'write'],
 ]);
 
-// `help` prints a command's documentation and nothing else — its own `--help`
-// carries no `Risk:` line because it is not an operation. Reading is the whole
-// of what it does, so it must not be dragged through the confirmation gate.
-const DOCUMENTATION_HEADS = new Set(['help']);
+// Commands whose whole job is to print documentation: `help` prints a command's
+// reference, `skills` lists and reads the manuals embedded in the CLI. Neither
+// is an operation, so their own `--help` carries no `Risk:` line and the
+// fail-closed default would drag a doc dump through the confirmation gate.
+// Their positionals are command names or manual names, never local files.
+const DOCUMENTATION_HEADS = new Set(['help', 'skills']);
 
-// The command a call actually names. Container commands (`materials`, `task`)
-// print no risk of their own — the risk lives on the `+` subcommand — so any
-// leading `+` positionals are part of the risk path. `task +resume` is a write
-// while `task +list` is a read, and this is what tells them apart.
-function riskPathTokens(tokens, args) {
+// The command a call actually names. Container commands (`materials`, `task`,
+// `skills`) print no risk of their own — it lives on the subcommand — so a
+// leading positional that names one of the container's children belongs to the
+// risk path. That is what tells `task +resume` (write) from `task +list`, and
+// `skills list` from the bare `skills` container.
+async function riskPathTokens(runOpts, tokens, args) {
   const path = tokens.slice();
-  if (Array.isArray(args._positional)) {
-    for (const item of args._positional) {
-      const value = String(item);
-      if (!value.startsWith('+')) break;
-      path.push(value);
+  const positional = Array.isArray(args._positional) ? args._positional.map(String) : [];
+  for (const item of positional) {
+    if (!item || item.startsWith('-')) break;
+    if (!item.startsWith('+')) {
+      // A `+` marker is a subcommand by construction; anything else has to be
+      // one the CLI actually lists at this level, or it is an operand.
+      const children = await childrenAt(runOpts, path);
+      if (!children.children.some((child) => child.name === item)) break;
     }
+    path.push(item);
   }
   return path;
 }
@@ -1125,7 +1132,7 @@ async function callTool(params) {
     }
     if (!risk) {
       try {
-        risk = await helpRisk(runOpts, riskPathTokens(tokens, args));
+        risk = await helpRisk(runOpts, await riskPathTokens(runOpts, tokens, args));
       } catch (err) {
         if (err && err.code) return catalogFailure(err);
         risk = null;

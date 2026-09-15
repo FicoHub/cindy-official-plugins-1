@@ -33,6 +33,7 @@ const FIXTURE_TREE = {
     ['task', 'List, inspect, resume, or cancel long-running upload tasks'],
     ['auth', 'Manage TapTap CLI login credentials'],
     ['help', 'Help about any command'],
+    ['skills', 'List and read the manuals embedded in the CLI'],
     ['overview', 'Summarize login, visible developers, and visible games'],
     ['update', 'Update taptap-cli to the latest version'],
     ['upload', 'Upload an image and ingest it into the app asset library'],
@@ -55,6 +56,10 @@ const FIXTURE_TREE = {
     ['+validate', 'Validate generated files'],
   ],
   materials: [['+inspect', 'Inspect a local directory or archive']],
+  skills: [
+    ['list', 'List the embedded manuals'],
+    ['read', 'Read one embedded manual'],
+  ],
   task: [
     ['+list', 'List upload tasks'],
     ['+resume', 'Resume an upload task'],
@@ -374,6 +379,17 @@ test('risk comes from the CLI, so second-level commands are not gated as writes'
   assert.equal(unknown.result.errorCode, 'UNKNOWN_TOOL', 'a command the CLI does not have is rejected');
 });
 
+test('the CLI\'s embedded manuals are readable through the plugin', async () => {
+  // `skills list` / `skills read` hand the agent the CLI's own manuals. Their
+  // positionals name manuals, not files, and the container prints no risk of
+  // its own — so a subcommand path, not a bare head, decides both.
+  const [reply] = await callWorker([
+    callTool('skills', { cli_path: fakeCli, args: { _positional: ['list'] } }),
+  ]);
+  assert.equal(reply.result.ok, true);
+  assert.deepEqual(reply.result.data.envelope.data.echo, ['skills', 'list']);
+});
+
 test('reading documentation is never gated as a write', async () => {
   // `help` only prints a command's documentation, so its own --help carries no
   // Risk line; failing closed on that would drag a help dump through the
@@ -669,7 +685,7 @@ test('every operation with a write risk declares one', () => {
   for (const op of ['auth login-start', 'auth login-wait']) {
     assert.match(workerSource, new RegExp(`\\['${op}', 'write'\\]`), `${op} must be declared a write`);
   }
-  assert.match(workerSource, /riskPathTokens\(tokens, args\)/,
+  assert.match(workerSource, /riskPathTokens\(runOpts, tokens, args\)/,
     'the risk lookup must see the `+` subcommand a call actually names');
 });
 
