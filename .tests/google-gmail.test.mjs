@@ -505,3 +505,22 @@ test('misplaced save_dir never silently writes into the workdir', async () => {
     } finally { h.close(); }
   }
 });
+
+test('disposition tokens consistently accept whitespace and case without matching prefixes', async () => {
+  for (const whitespace of [' ', '\t', '\r\n\t']) {
+    const h = harness({ parts: [
+      { mimeType: 'text/plain', headers: [{ name: 'Content-Disposition', value: ' AtTaChMeNt' + whitespace + '; filename=log.txt' }], body: { data: encoded('log'), size: 3 } },
+      { mimeType: 'image/png', headers: [{ name: 'Content-Disposition', value: 'InLiNe' + whitespace + ';' }], body: { data: encoded('img'), size: 3 } },
+      { mimeType: 'text/plain', headers: [{ name: 'Content-Disposition', value: 'inline' + whitespace + ';' }], body: { data: encoded('body') } },
+    ] });
+    try {
+      const r = await h.run({ action: 'read', download_attachments: true });
+      assert.equal(r.result.body, 'body'); assert.equal(r.result.attachments.length, 2);
+      assert.deepEqual(r.result.attachments.map((f) => f.inline), [false, true]);
+      assert.equal(r.result.downloads.complete, true);
+      assert.equal(readFileSync(path.join(h.dir, r.result.downloads.files[0].path), 'utf8'), 'log');
+      assert.equal(h.context.dispositionType({ headers: [{ name: 'Content-Disposition', value: 'attachment-extra;' }] }), 'attachment-extra');
+      assert.equal(h.context.isAttachment({ mimeType: 'text/plain', headers: [{ name: 'Content-Disposition', value: 'attachment-extra;' }], body: { data: encoded('body') } }), false);
+    } finally { h.close(); }
+  }
+});

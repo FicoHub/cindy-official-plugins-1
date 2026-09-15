@@ -165,10 +165,14 @@ function partHeader(part, name) {
   return header({ payload: part }, name);
 }
 
+function dispositionType(part) {
+  return partHeader(part, 'Content-Disposition').split(';', 1)[0].trim().toLowerCase();
+}
+
 function isAttachment(part) {
-  var disposition = partHeader(part, 'Content-Disposition').trim();
-  return Boolean(part.filename || /^attachment(?:;|$)/i.test(disposition) ||
-    ((/^inline(?:;|$)/i.test(disposition) || partHeader(part, 'Content-ID')) &&
+  var disposition = dispositionType(part);
+  return Boolean(part.filename || disposition === 'attachment' ||
+    ((disposition === 'inline' || partHeader(part, 'Content-ID')) &&
       !/^text\/(plain|html)$/i.test(part.mimeType || '')) ||
     (part.body && part.body.attachmentId && !/^text\/(plain|html)$/i.test(part.mimeType || '')));
 }
@@ -202,7 +206,7 @@ function attachmentParts(payload) {
           id: id, part_id: part.partId || '', filename: part.filename || 'attachment',
           mime_type: part.mimeType || 'application/octet-stream',
           size: part.body && Number.isSafeInteger(part.body.size) ? part.body.size : null,
-          inline: /^inline(?:;|$)/i.test(partHeader(part, 'Content-Disposition').trim()) ||
+          inline: dispositionType(part) === 'inline' ||
             Boolean(partHeader(part, 'Content-ID')),
         },
         body: part.body || {},
