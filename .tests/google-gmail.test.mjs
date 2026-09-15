@@ -119,10 +119,10 @@ test('read downloads remote and embedded files byte-for-byte, pins account and u
 test('select attachments by returned id and honor host save ticket, preserving explicit account', async () => {
   const h = harness(fixture());
   try {
-    const r = await h.run({ action: 'download_attachments', account: 'account-b', attachment_ids: ['part-0-2'], save_deposit: { token: 'host-ticket' } });
+    const r = await h.run({ action: 'download_attachments', account: 'account-b', attachment_ids: ['part-0-2'], save_deposit: { token: '00000000-0000-4000-8000-000000000001' } });
     assert.equal(r.result.files.length, 1); assert.equal(r.result.complete, true);
     assert.ok(h.calls.every((c) => c.authAccount === 'account-b'));
-    assert.equal(h.writes[0].root, 'save'); assert.equal(h.writes[0].token, 'host-ticket');
+    assert.equal(h.writes[0].root, 'save'); assert.equal(h.writes[0].token, '00000000-0000-4000-8000-000000000001');
   } finally { h.close(); }
 });
 
@@ -222,7 +222,7 @@ test('default account cannot change after metadata request, and repeated workdir
 test('save directory preserves same-name attachments across batches and retries', async () => {
   const payload = { parts: Array.from({ length: 17 }, (_, i) => attachment('same-' + 'x'.repeat(120) + '.txt', String(i))) };
   const h = harness(payload);
-  const args = { action: 'download_attachments', account: 'account-a', save_deposit: { token: 'host-ticket' } };
+  const args = { action: 'download_attachments', account: 'account-a', save_deposit: { token: '00000000-0000-4000-8000-000000000001' } };
   try {
     const first = await h.run(args);
     h.context.cindy.fetch = async () => ({ ok: true, status: 200, body: JSON.stringify({ id: 'message', payload }) });
