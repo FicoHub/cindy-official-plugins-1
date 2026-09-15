@@ -14,7 +14,7 @@
 
 #### 提审意图门禁
 
-哪些请求算提审意图、哪些只算目标方向，以 [shared execution](../../shared-execution.md)「提审意图门禁」的唯一词表为准，本文件不另立清单；本节流程从“用户已明确提审”开始。
+哪些请求算提审意图、哪些只算目标方向，以 [shared execution](taptap-suite/references/shared-execution.md)「提审意图门禁」的唯一词表为准，本文件不另立清单；本节流程从“用户已明确提审”开始。
 
 标准流程固定为：`prepare-review-snapshot` → `precheck-app-review` → 单独最终确认 → `submit-app-review --idempotency-key <submit-key> --yes`。第一步返回的 `review_snapshot.fingerprint` 和本次 `release_schedule` 必须原样贯穿三步。当前 metadata 把前两步标为 `read`，无需 `--yes` 与幂等键；`submit-app-review` 仍为 `write`，需稳定幂等键与 `--yes`。CLI 不覆盖其风险分类。
 
@@ -30,7 +30,7 @@
 
 #### 步骤 ① `prepare-review-snapshot`
 
-进入步骤 ① 前，先按 [review risk checklist](review-risk-checklist.md) 输出本地风险清单，分开列出官方规则、当前事实、历史审核、测试证据和无法验证项。该清单不替代服务端 blocker，也不能把历史拒审写成官方规则。
+进入步骤 ① 前，先按 [review risk checklist](taptap-suite/references/taptap-app-edit/references/review-risk-checklist.md) 输出本地风险清单，分开列出官方规则、当前事实、历史审核、测试证据和无法验证项。该清单不替代服务端 blocker，也不能把历史拒审写成官方规则。
 
 然后确定本次上线方式，只允许 `{"kind":"immediate"}` 或 `{"kind":"scheduled_exact","release_time":<Unix秒>}`；不传时沿用草稿设置。把它放入 `release_schedule`。调用后：
 
@@ -217,7 +217,7 @@ taptap-cli app get-app-version \
 
 按固定顺序连续推进，不要每步停下等用户：
 
-1. 按 [skill analysis](app-edit-analysis.md) 读取当前状态与阻断项
+1. 按 [skill analysis](taptap-suite/references/taptap-app-edit/references/app-edit-analysis.md) 读取当前状态与阻断项
 2. 只处理当前可填字段（按 `get-app-module` 的 visibility 过滤）
 3. 能批量的尽量一次 `save-changes`（每批 ≤5 字段）
 4. 修改后重新读取受影响模块，并按 skill analysis 确认进度
@@ -229,7 +229,7 @@ taptap-cli app get-app-version \
 
 这类话术的真实意图通常不是"立刻提审"，而是"把这次版本要发的东西梳理清楚并发出去"。处理顺序：
 
-1. 先按 [skill analysis](app-edit-analysis.md) 读取当前 draft 状态、是否可编辑、是否已有明显阻断项
+1. 先按 [skill analysis](taptap-suite/references/taptap-app-edit/references/app-edit-analysis.md) 读取当前 draft 状态、是否可编辑、是否已有明显阻断项
 2. 再判断**当前 draft 相对线上版是否已经有明确变化**
 3. 如需理解最近线上版 / 历史版本语义，可用 `list-app-versions` 找最近 published，再用 `get-app-version` 做回溯辅助
 4. **如果当前还看不出本次更新内容**（例如 draft 与线上版没有可识别差异，或只有很弱的零散改动），不要直接说"那就提审"；应明确告诉用户"我这边还看不出你这次准备更新哪些内容"，然后追问本次更新核心是什么：
@@ -250,7 +250,7 @@ taptap-cli app get-app-version \
 
 这类话术过于宽泛，必须先理解业务阶段，再决定要补什么资料。处理顺序：
 
-1. 先按 [skill analysis](app-edit-analysis.md) 读取当前草稿、缺失项、发布设置和包体
+1. 先按 [skill analysis](taptap-suite/references/taptap-app-edit/references/app-edit-analysis.md) 读取当前草稿、缺失项、发布设置和包体
 2. 先识别本次发布目标属于哪一类：
    - **首曝**：重点通常是基础信息 + 素材展示 + 对外呈现文案
    - **开放预约**：除基础资料外，重点确认分发状态 / 发布时机 / 预约相关展示信息

@@ -1,12 +1,12 @@
 # 游戏物料要求
 
-本文件维护 TapTap CLI 对游戏图片、视频和 Windows 专属素材的取证与回答口径。完整的官方 v4 规则目录见 [TapTap 上架规则目录](official-review-rules-v4.md)，业务 skill 不应各自复制或补造一套规则。
+本文件维护 TapTap CLI 对游戏图片、视频和 Windows 专属素材的取证与回答口径。完整的官方 v4 规则目录见 [TapTap 上架规则目录](taptap-suite/references/official-review-rules-v4.md)，业务 skill 不应各自复制或补造一套规则。
 
 ## 规范来源
 
 1. [游戏物料要求](https://developer.taptap.cn/docs/store/release/publish/material/)用于格式、尺寸、容量、时长、比例和物料用途。
 2. [TapTap 游戏审核规范细则](https://developer.taptap.cn/docs/store/release/publish/agree/)用于物料内容、商店配置、安装包和资质审核规则。
-3. 两份页面在 2026-08-20 显示版本 `v4`；引用时必须保留文档名和章节，完整映射见 [TapTap 上架规则目录](official-review-rules-v4.md)。
+3. 两份页面在 2026-08-20 显示版本 `v4`；引用时必须保留文档名和章节，完整映射见 [TapTap 上架规则目录](taptap-suite/references/official-review-rules-v4.md)。
 4. 具体游戏的精确字段规格，以 `get-app-module` 当次返回的 `image_spec` / `video_spec` 为准。
 5. 官方指南与实时规格不一致时，不混用两套数值；说明官方指南是通用参考，并按实时规格判断当前游戏能否上传或提交。
 

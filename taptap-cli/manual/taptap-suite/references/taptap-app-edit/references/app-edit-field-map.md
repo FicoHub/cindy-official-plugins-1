@@ -110,7 +110,7 @@ Windows 素材中，当前资料模块主流程的游戏库背景壁纸字段是
 - H5：`{"slot":"main","package":{"type":"h5","id":"<h5-version-id>"},"expected":<current-main>}`
 - Windows：`{"slot":"windows","package":{"type":"windows","id":"<package-id>","branch":<optional-branch>},"expected":<current-windows>}`
 
-主包体的 APK、Tap 小游戏、Spark 和 H5 四选一；写入任一主包体会清空其它主包体判别字段。当前 schema 声明 `package_slots` 时，APK、Tap 小游戏、Spark、H5 和 Windows 可按该契约执行；未声明时停止绑定（契约见 [fields and packages](app-edit-fields-and-packages.md)）。Spark 额外要求同次 ready 候选、稳定 idempotency key 和写后读回。`package` 中不要使用旧的 `kind`、`apkId`、`miniAppPackageId`、`spark_version_code`、`h5VersionId` 或 `h5Package` 字段。APK 的「提供 Tap 小游戏游玩方式」使用独立 `slot:"apk_mini_game_play"`，不能混入 `slot:"main"` 的 package。
+主包体的 APK、Tap 小游戏、Spark 和 H5 四选一；写入任一主包体会清空其它主包体判别字段。当前 schema 声明 `package_slots` 时，APK、Tap 小游戏、Spark、H5 和 Windows 可按该契约执行；未声明时停止绑定（契约见 [fields and packages](taptap-suite/references/taptap-app-edit/references/app-edit-fields-and-packages.md)）。Spark 额外要求同次 ready 候选、稳定 idempotency key 和写后读回。`package` 中不要使用旧的 `kind`、`apkId`、`miniAppPackageId`、`spark_version_code`、`h5VersionId` 或 `h5Package` 字段。APK 的「提供 Tap 小游戏游玩方式」使用独立 `slot:"apk_mini_game_play"`，不能混入 `slot:"main"` 的 package。
 
 Windows 包体候选可通过 `list-packages` 的 `list` 读取，类型值为 `windows`，候选项可包含 `branch`。当前 schema 声明 `package_slots.windows` 时，写入前原样回传其中的 `expected`；字段未声明时按包体槽位契约停止。不要把候选 `package_id` 当作槽位当前值，也不要自行补 branch。
 

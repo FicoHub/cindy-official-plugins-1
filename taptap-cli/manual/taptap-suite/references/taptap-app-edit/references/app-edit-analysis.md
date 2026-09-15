@@ -16,10 +16,10 @@
    - `package`
    - `developer-info`
    - `other-settings`
-2. 调用 `list-packages`，读取候选摘要、`current_bindings`、总数，以及当前 schema 声明时的 `package_slots`；包体写入只使用同次 `package_slots.<slot>.available` 与 `expected`，schema 未声明时停止绑定（契约见 [fields and packages](app-edit-fields-and-packages.md)）。
+2. 调用 `list-packages`，读取候选摘要、`current_bindings`、总数，以及当前 schema 声明时的 `package_slots`；包体写入只使用同次 `package_slots.<slot>.available` 与 `expected`，schema 未声明时停止绑定（契约见 [fields and packages](taptap-suite/references/taptap-app-edit/references/app-edit-fields-and-packages.md)）。
 3. 调用 `list-app-versions`，读取当前声明的 `version_id`、`version`、`status`、`release_time`、`last_event` 和 `logs`；需要查看某一历史版本字段时，将目标 item 的 `version` 传给 `get-app-version`，读取只读的 `detail.form_data`。列表项的 `version_id` 当前只是 `version` 的兼容别名。
 4. 资质和开发者认证转 `taptap-qualification`，使用它的当前分析结果，不自行推断豁免。
-5. 资料填写提示或提审准备度检查按 [review risk checklist](review-risk-checklist.md) 将官方规则、当前事实、历史审核、测试证据和 Agent 判断分层。官方规则只从 [`official-review-rules-v4.md`](../../official-review-rules-v4.md) 选择与当前字段直接相关的章节。
+5. 资料填写提示或提审准备度检查按 [review risk checklist](taptap-suite/references/taptap-app-edit/references/review-risk-checklist.md) 将官方规则、当前事实、历史审核、测试证据和 Agent 判断分层。官方规则只从 [`official-review-rules-v4.md`](taptap-suite/references/official-review-rules-v4.md) 选择与当前字段直接相关的章节。
 
 读取失败的维度必须标记为“无法确认”，不能把未知当作通过。只回答单个字段或素材规格时，读取目标模块即可，不为形式完整而调用全部模块。
 
@@ -31,7 +31,7 @@
 - **字段完整度**：只检查本次返回且可见的字段；字段明确返回 `required=true` 时，空值是阻断项。隐藏字段和未返回字段不能按静态表补成必填。
 - **素材规格**：使用字段当次返回的 `image_spec` / `video_spec`。规格不可用时标记未知，不凭记忆给尺寸结论。
 - **字段**：`get-app-module` 当前使用 `data.result.fields.<field_id>`；只检查字段对象当次实际返回的 `current_value`、`visible`、`state` 和规格字段。
-- **包体**：候选必须来自同次 `list` 且 `status=ready`；槽位契约（`package_slots` 声明检查、`available`、`expected`）按 [fields and packages](app-edit-fields-and-packages.md)「包体槽位」执行，schema 未声明时停止绑定。字段缺失、空值、不可用或 stale 时标记“无法确认”并停止。
+- **包体**：候选必须来自同次 `list` 且 `status=ready`；槽位契约（`package_slots` 声明检查、`available`、`expected`）按 [fields and packages](taptap-suite/references/taptap-app-edit/references/app-edit-fields-and-packages.md)「包体槽位」执行，schema 未声明时停止绑定。字段缺失、空值、不可用或 stale 时标记“无法确认”并停止。
 - **分发状态**：只报告 `platform-status` 中实际可见的 `region_flag_*`，并使用当次 `options` / `value_labels`。
 - **发布设置**：以 `release-settings` 当前值为准；版本通常由平台按定时自动发布。若到点后仍为 `status=3`，仅在 `release_time <= 当前时间` 时可按生命周期流程确认后调用 `publish-scheduled-release`。
 - **资质与认证**：以 `taptap-qualification` 的当前结果为准。任何未完成或无法确认项都不能被 AI 文案判断覆盖。

@@ -116,9 +116,9 @@ metadata 命令只要暴露 `--idempotency-key`，预览和真实写入都必须
 
 ### 运营阶段手册交接
 
-游戏完成资料提审、测试计划创建/重开、首次正式上线或普通版本更新后的 handoff，按**已确认的运营阶段**补充一个最匹配的官方手册。识别前完整读取 [运营阶段识别与官方手册](operation-handbooks.md)，并通过 `taptap-cli skills read taptap-cli references/sources/operation-handbooks/manifest.json` 读取当前 CLI 内置的手册标题、URL 和官方页面描述。
+游戏完成资料提审、测试计划创建/重开、首次正式上线或普通版本更新后的 handoff，按**已确认的运营阶段**补充一个最匹配的官方手册。识别前完整读取 [运营阶段识别与官方手册](taptap-suite/references/operation-handbooks.md)，并通过 `taptap-cli skills read taptap-cli references/sources/operation-handbooks/manifest.json` 读取当前 CLI 内置的手册标题、URL 和官方页面描述。
 
-每次最多给一个手册，不要把多个阶段链接全部列给用户。先根据状态证据说明为什么适合当前阶段，再把 manifest 的 `description` 压缩成一句话，最后按本节人工页面规范将 `url` 单独输出一行且只展示一次。不能只凭版本数值状态映射运营阶段；审核中不代表测试期，已上线也不必然是首次上线。各阶段的充分证据、明确排除与完整历史门禁以 [运营阶段识别与官方手册](operation-handbooks.md)「识别顺序」为唯一正本；来源清单缺失、历史不完整或证据冲突时选择 `unknown`，不要猜阶段或补造描述。
+每次最多给一个手册，不要把多个阶段链接全部列给用户。先根据状态证据说明为什么适合当前阶段，再把 manifest 的 `description` 压缩成一句话，最后按本节人工页面规范将 `url` 单独输出一行且只展示一次。不能只凭版本数值状态映射运营阶段；审核中不代表测试期，已上线也不必然是首次上线。各阶段的充分证据、明确排除与完整历史门禁以 [运营阶段识别与官方手册](taptap-suite/references/operation-handbooks.md)「识别顺序」为唯一正本；来源清单缺失、历史不完整或证据冲突时选择 `unknown`，不要猜阶段或补造描述。
 
 这些固定文档入口来自 TapTap 官方开发者文档，不需要调用网页搜索，也不要替换成其他环境域名。官方描述只用于概括文档覆盖范围；不得承诺固定曝光量、推荐位或流量结果。
 

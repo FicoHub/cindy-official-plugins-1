@@ -7,11 +7,11 @@
 
 两份页面在 2026-08-20 显示版本 `v4`。本文件不替代原文；回答用户或生成风险清单时必须保留文档名称、章节和链接。
 
-用于逐条校对和复现的页面 Markdown 快照保存在 [sources/v4](sources/v4/)；抓取日期、页面版本、原始 HTML SHA-256 和快照 SHA-256 记录在 [manifest.md](sources/v4/manifest.md)。规则摘要与快照冲突时，以对应官方页面当前内容为准，并先刷新快照和目录，不能静默沿用旧摘要。
+用于逐条校对和复现的页面 Markdown 快照保存在 [sources/v4](taptap-suite/references/sources/v4/manifest.md)；抓取日期、页面版本、原始 HTML SHA-256 和快照 SHA-256 记录在 [manifest.md](taptap-suite/references/sources/v4/manifest.md)。规则摘要与快照冲突时，以对应官方页面当前内容为准，并先刷新快照和目录，不能静默沿用旧摘要。
 
 ## 来源边界
 
-官方规则 / 当前事实 / 历史审核 / 测试证据 / 无法验证 的完整分层定义，以[游戏物料要求](material-requirements.md)「事实来源分层」为唯一正本。本文件只约束：只有本文件列出的、可定位到上述两份文档具体章节的内容，才能称为“官方规则”或“规范要求”。
+官方规则 / 当前事实 / 历史审核 / 测试证据 / 无法验证 的完整分层定义，以[游戏物料要求](taptap-suite/references/material-requirements.md)「事实来源分层」为唯一正本。本文件只约束：只有本文件列出的、可定位到上述两份文档具体章节的内容，才能称为“官方规则”或“规范要求”。
 
 ## 规则记录格式
 

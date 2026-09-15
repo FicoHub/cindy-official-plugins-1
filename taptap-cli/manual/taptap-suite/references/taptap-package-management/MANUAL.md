@@ -4,7 +4,7 @@
 
 **CRITICAL — 动态 `package-management` API 命令除确认式 `enable-mini-app` 外只做包体管理诊断和自测入口;本地包体上传由 materials 手册执行。Tap 小游戏不在 CLI 上传,必须引导到开发者中心。资料"选择/切换主包体"必须转 app-edit 手册。**
 
-**CRITICAL — `package-management get-test-qr-code` 成功后拿到 `qrcode_uri` / `qr_code_url` 时,必须调用顶层 shortcut `test-qr-code`(`args.output` 指定 .png 路径)生成 PNG 二维码,并把返回的 `data.file_path` 作为图片附件交付给用户扫码。只输出 `qrcode_uri` / `qr_code_url`、只给文件路径或声称"已展示"都不算交付;工具输出里的图片预览只对 Agent 可见,不算用户收到二维码。协议细节与宿主差异见 [diagnostics](references/package-management-diagnostics.md)「处理自测意图」。**
+**CRITICAL — `package-management get-test-qr-code` 成功后拿到 `qrcode_uri` / `qr_code_url` 时,必须调用顶层 shortcut `test-qr-code`(`args.output` 指定 .png 路径)生成 PNG 二维码,并把返回的 `data.file_path` 作为图片附件交付给用户扫码。只输出 `qrcode_uri` / `qr_code_url`、只给文件路径或声称"已展示"都不算交付;工具输出里的图片预览只对 Agent 可见,不算用户收到二维码。协议细节与宿主差异见 [diagnostics](taptap-suite/references/taptap-package-management/references/package-management-diagnostics.md)「处理自测意图」。**
 
 ## 快速决策
 

@@ -1,6 +1,6 @@
 # TapTap CLI 插件:身份与登录(identity)
 
-identity 是所有业务手册的前置定位能力。它只确认登录态、厂商、游戏和 app scope,不修改任何业务数据。命令行示例按 [taptap-suite](../../MANUAL.md) 的映射表转成 call_tool 调用。
+identity 是所有业务手册的前置定位能力。它只确认登录态、厂商、游戏和 app scope,不修改任何业务数据。命令行示例按 [taptap-suite](taptap-suite/MANUAL.md) 的映射表转成 call_tool 调用。
 
 **CRITICAL — 不要猜 `developerId` 或 `appId`;只给游戏名或厂商名时必须先查候选。**
 

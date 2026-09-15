@@ -385,9 +385,12 @@ test('reading documentation is never gated as a write', async () => {
   assert.deepEqual(reply.result.data.envelope.data.echo, ['help', 'app', '+list']);
 });
 
-test('every relative link in the manuals resolves inside the package', () => {
-  // Manuals are read on demand by the agent; a dangling link is a dead end that
-  // no other gate catches, and manual dirs may contain Markdown only.
+test('every manual link is addressable through ghost_manual', () => {
+  // Manuals are read on demand by the agent, and its only reader is
+  // ghost_manual: it needs a full path from the manual root and rejects `..`.
+  // A markdown-relative target therefore resolves fine on disk and is still a
+  // dead end for the agent — which is what the previous filesystem-based check
+  // here failed to notice.
   const manualRoot = path.join(root, 'taptap-cli', 'manual');
   const markdown = [];
   const walk = (dir) => {
@@ -409,15 +412,27 @@ test('every relative link in the manuals resolves inside the package', () => {
     const text = fs.readFileSync(file, 'utf8');
     for (const match of text.matchAll(/\]\(([^)\s]+)\)/g)) {
       const target = match[1];
+      // `URL` and `page_url` are the prohibited-format examples in the
+      // page-handover rules, not links.
       if (/^(https?:|mailto:|#|<)/.test(target) || target === 'URL' || target === 'page_url') continue;
       const clean = target.split('#')[0];
       if (!clean) continue;
-      if (!fs.existsSync(path.resolve(path.dirname(file), clean))) {
-        broken.push(`${path.relative(manualRoot, file)} -> ${target}`);
+      const where = `${path.relative(manualRoot, file)} -> ${target}`;
+      if (clean.split('/').includes('..')) {
+        broken.push(`${where} (ghost_manual rejects ..)`);
+        continue;
+      }
+      if (!clean.startsWith('taptap-suite/')) {
+        broken.push(`${where} (must be a path from the manual root)`);
+        continue;
+      }
+      const resolved = path.join(manualRoot, clean);
+      if (!fs.existsSync(resolved) || !fs.statSync(resolved).isFile()) {
+        broken.push(`${where} (no such manual file)`);
       }
     }
   }
-  assert.deepEqual(broken, [], 'manuals contain links that do not resolve');
+  assert.deepEqual(broken, [], 'manuals contain links the agent cannot follow');
 });
 
 test('the data-query domain is excluded from every surface', async () => {
@@ -472,6 +487,43 @@ test('the install guidance lists commands that actually work', () => {
     assert.doesNotMatch(source, /npx @taptap\/cli install/,
       `${label} must not route users through the timed-out wizard`);
   }
+});
+
+test('the manuals never tell the agent to call a command the plugin refuses', () => {
+  // A `call_tool` name in the manual is an instruction to the agent; naming a
+  // command the worker rejects (data querying, CLI self-update) or redirects
+  // (raw `auth login`, which would hand the device code to the model) sends it
+  // into a guaranteed failure. Bash examples are addressed to the user and are
+  // deliberately not checked here.
+  const refused = [
+    { name: 'dashboard-stats', why: 'data querying is out of scope' },
+    { name: 'stats:get', why: 'data querying is out of scope' },
+    { name: 'update', why: 'updating the CLI is the user\'s own action' },
+    { name: 'auth login', why: 'the worker redirects it to auth login-start' },
+  ];
+  const manualRoot = path.join(root, 'taptap-cli', 'manual');
+  const markdown = [];
+  (function walk(dir) {
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      const full = path.join(dir, entry.name);
+      if (entry.isDirectory()) walk(full);
+      else markdown.push(full);
+    }
+  })(manualRoot);
+
+  const found = [];
+  for (const file of markdown) {
+    const text = fs.readFileSync(file, 'utf8');
+    for (const match of text.matchAll(/call_tool\(name:\s*["']([^"']+)["']/g)) {
+      const called = match[1].trim();
+      for (const rule of refused) {
+        if (called === rule.name || called.startsWith(rule.name + ' ')) {
+          found.push(`${path.relative(manualRoot, file)}: ${called} (${rule.why})`);
+        }
+      }
+    }
+  }
+  assert.deepEqual(found, [], 'the manuals instruct the agent to call a refused command');
 });
 
 test('the manuals keep the agent on the plugin path, not the CLI skill path', () => {

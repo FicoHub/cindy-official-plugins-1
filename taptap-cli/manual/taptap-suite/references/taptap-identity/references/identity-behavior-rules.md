@@ -11,7 +11,7 @@
    保存后，后续命令可以省略对应 ID；显式传入的 ID 始终优先。
 4. 可选地输出本次 `app +list` / `overview` 每个游戏的资料页入口供人工查看：优先使用返回的 `page_url`，缺失时使用 CLI 根据已确认 `developerId` 和 `appId` 推导的规范地址。打开页面不会改变 CLI scope，也不会让下一条消息自动继承页面 scope；
    不要把页面跳转当成 CLI 切换，也不要声称已切换网页状态。
-5. 身份发现的页面入口固定为对应游戏的资料编辑页。优先使用 CLI 返回值；返回值缺失时的推导规则按 [shared execution](../../shared-execution.md)「人工页面交接和链接输出」执行，不得把 host 改为 Capability API 域名 `api.tapapis.cn`，不得改变 `/v3/{developerId}/app/{appId}/store/update` 路径，推导地址必须标记为 CLI 根据 ID 生成。面向用户时先写游戏名称或查看动作；URL 单独占一行且只展示一次，不要使用 `[label](page_url)`、`page_url (page_url)` 等 Markdown 链接或括号包装形式，也不要追加追踪参数。
+5. 身份发现的页面入口固定为对应游戏的资料编辑页。优先使用 CLI 返回值；返回值缺失时的推导规则按 [shared execution](taptap-suite/references/shared-execution.md)「人工页面交接和链接输出」执行，不得把 host 改为 Capability API 域名 `api.tapapis.cn`，不得改变 `/v3/{developerId}/app/{appId}/store/update` 路径，推导地址必须标记为 CLI 根据 ID 生成。面向用户时先写游戏名称或查看动作；URL 单独占一行且只展示一次，不要使用 `[label](page_url)`、`page_url (page_url)` 等 Markdown 链接或括号包装形式，也不要追加追踪参数。
 6. **不要假装自己能切换网页**——CLI 只能保存自己的 profile scope；网页切换仍由用户在页面中主动完成。
 
 ### 关于创建或入驻厂商

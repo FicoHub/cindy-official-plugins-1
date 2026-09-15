@@ -9,7 +9,7 @@
 
 ### 提交准备度
 
-按 [skill analysis](app-edit-analysis.md) 读取模块、包体、版本和资质，由 Agent 汇总当前阻断项。只检查当次返回且可见的字段；动态必填、包体限制或资质无法确认时明确标记未知，不能推断为通过。
+按 [skill analysis](taptap-suite/references/taptap-app-edit/references/app-edit-analysis.md) 读取模块、包体、版本和资质，由 Agent 汇总当前阻断项。只检查当次返回且可见的字段；动态必填、包体限制或资质无法确认时明确标记未知，不能推断为通过。
 
 Skill 分析只用于资料准备建议。用户明确要求提审后，以 `prepare-review-snapshot` 和 `precheck-app-review` 的当前服务端结果作为最终门禁。
 
@@ -20,7 +20,7 @@ Skill 分析只用于资料准备建议。用户明确要求提审后，以 `pre
 `current_bindings` 或候选补造槽位快照。`current_bindings` 只有展示摘要，不能
 作为 `select-package` / `clear-package` 的写入前置条件。
 
-需要人工打开资料编辑页时，入口按 [shared execution](../../shared-execution.md)「人工页面交接和链接输出」的推导规则生成；`/v3/<developerId>/app/<appId>/store` 不是资料编辑页，禁止使用。
+需要人工打开资料编辑页时，入口按 [shared execution](taptap-suite/references/shared-execution.md)「人工页面交接和链接输出」的推导规则生成；`/v3/<developerId>/app/<appId>/store` 不是资料编辑页，禁止使用。
 
 ### 文字字段
 
@@ -59,8 +59,8 @@ taptap-cli app save-changes \
 
 资料视频规格必须以 `get-app-module("assets-upload")` 返回的 `video_spec` 为准。用户询问 `trailer` / `gameplay_demo_video` 的格式、大小、时长、分辨率、比例或内容要求时，先读取规格，只做判断，不调用 `save-changes`。
 
-- 不凭记忆复述具体限制；规范来源、动态规格优先级、冲突口径和检查项统一按[游戏物料要求](../../material-requirements.md)执行。
-- 填写或替换素材时按 [review risk checklist](review-risk-checklist.md) 展示当前字段相关的官方规则、确定性检查结果和需要人工判断的内容要求；历史拒审必须单列来源。
+- 不凭记忆复述具体限制；规范来源、动态规格优先级、冲突口径和检查项统一按[游戏物料要求](taptap-suite/references/material-requirements.md)执行。
+- 填写或替换素材时按 [review risk checklist](taptap-suite/references/taptap-app-edit/references/review-risk-checklist.md) 展示当前字段相关的官方规则、确定性检查结果和需要人工判断的内容要求；历史拒审必须单列来源。
 - 已用 `taptap-cli upload-video` 上传时，字段值传返回的数字 `videoId`，不是 URL。
 - 未上传时转 `taptap-materials` 执行 `upload-video`（`--scene` 指定资料回填目标；其预览会读取目标字段的实时 `video_spec`，展示目标与规范，不会上传文件），拿到返回的数字 `videoId` 后按本节写入。`scene` 只表示本地资料回填目标，不会发送给 `uploadVideo`。视频转码完成前可能无法预览。
 - `trailer` 与 `gameplay_demo_video` 必须使用不同的 `videoId`。修改任一字段前先读取两者当前值，并校验本批变更后的最终值；若工具返回重复冲突，不要用相同 ID 重试，要求用户选择或上传另一个视频。不同 ID 只表示引用不同对象，不能据此宣称内容不雷同或语义审核通过。

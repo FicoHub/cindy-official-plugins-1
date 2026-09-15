@@ -2,14 +2,14 @@
 
 本流程把资料填写提示和提审前复核统一为可溯源的风险清单。规则来源只使用：
 
-- [`official-review-rules-v4.md`](../../official-review-rules-v4.md)
+- [`official-review-rules-v4.md`](taptap-suite/references/official-review-rules-v4.md)
 - 当前 CLI 读取结果
 - 当前游戏的历史审核记录
 - 明确提供的测试证据
 
 ## 来源类型
 
-每条结论必须标记一种来源类型，不能混写。来源类型字段（`official_rule` / `current_fact` / `historical_review` / `test_evidence` / `agent_assessment`）与各自可说明的边界，以[游戏物料要求](../../material-requirements.md)「事实来源分层」为唯一正本，本文件不另立表格。
+每条结论必须标记一种来源类型，不能混写。来源类型字段（`official_rule` / `current_fact` / `historical_review` / `test_evidence` / `agent_assessment`）与各自可说明的边界，以[游戏物料要求](taptap-suite/references/material-requirements.md)「事实来源分层」为唯一正本，本文件不另立表格。
 
 ## 填写资料时
 
@@ -79,7 +79,7 @@
 
 > 请按当前游戏的发布目标和本次读取结果完善：简介、开发者的话、游戏截图、宣传图、实机视频，以及当前页面可见且适用的首页推荐相关素材或选项。游戏资料或版本审核通过不等于素材审核通过，也不等于已经具备首页推荐资格；缺失或不符合适用物料要求的项目，可能导致本次素材审核不通过并影响首页或编辑推荐展示。是否属于提审阻断项，以当前字段 `required`、服务端预检结果或适用官方物料要求为准。
 
-这段提醒是检查清单，不是静态必填表。实机视频、1:1 宣传图、Windows 素材和首页编辑推荐栏目推荐图等项目，必须结合当前字段可见性、发布目标、官方章节和服务端返回判断。资料/版本审核、素材审核和首页推荐是不同判断；首页编辑推荐栏目推荐图缺失时，只能依据[游戏物料要求](../../material-requirements.md)说明其专属栏目展示限制。访问路径和其他首页推荐结论必须以当前 `platform-status` 或其他直接状态证据为准。
+这段提醒是检查清单，不是静态必填表。实机视频、1:1 宣传图、Windows 素材和首页编辑推荐栏目推荐图等项目，必须结合当前字段可见性、发布目标、官方章节和服务端返回判断。资料/版本审核、素材审核和首页推荐是不同判断；首页编辑推荐栏目推荐图缺失时，只能依据[游戏物料要求](taptap-suite/references/material-requirements.md)说明其专属栏目展示限制。访问路径和其他首页推荐结论必须以当前 `platform-status` 或其他直接状态证据为准。
 
 ## 视频交叉检查
 

@@ -36,7 +36,7 @@ taptap-cli asset-library ingest-image-to-assets \
 
 ### 素材来源优先级
 
-询问顺序、生图边界和询问话术以 [skill 主文件](../MANUAL.md)「素材来源优先级」为唯一正本，本节不另立清单；本 reference 只承接生图计划与校验的执行细节。
+询问顺序、生图边界和询问话术以 [skill 主文件](taptap-suite/references/taptap-materials/MANUAL.md)「素材来源优先级」为唯一正本，本节不另立清单；本 reference 只承接生图计划与校验的执行细节。
 
 截图有独立边界：
 

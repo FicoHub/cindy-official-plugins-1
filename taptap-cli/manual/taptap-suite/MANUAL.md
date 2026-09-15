@@ -2,7 +2,7 @@
 
 本插件是 TapTap 官方 CLI(taptap-cli)的 Cindy 封装:所有业务通过 `list_tools`(查目录)与 `call_tool`(执行操作)两个工具完成,执行体是**用户本机已安装的官方 taptap-cli**,插件不随包分发也不下载任何二进制;登录态、凭证、风险门禁与 JSON 输出契约都以该 CLI 自身为准,插件不读取、不保存凭证。本手册是所有业务手册的共享执行规范与总入口。
 
-> **前置条件**:本机必须已安装并登录 taptap-cli。`npm install -g @taptap/cli` 全局安装(包约 37MB);`taptap-cli update --skills-layout suite` 安装 AI Skills 并合并为单个 taptap-suite;`taptap-cli auth login` 补做授权。调用返回 `CLI_NOT_INSTALLED` 时,把其中的安装指引原样告诉用户;若 CLI 装在非标准位置,让用户在插件设置页填写其绝对路径。不要改用 Shell、npx 或其它方式绕过本插件去执行 TapTap 业务命令。
+> **前置条件**:本机必须已安装并登录 taptap-cli。以下三条**由用户在终端执行,插件不代跑**(安装与升级不属于业务操作):`npm install -g @taptap/cli` 全局安装(包约 37MB);`taptap-cli update --skills-layout suite` 安装 AI Skills 并合并为单个 taptap-suite;`taptap-cli auth login` 补做授权。调用返回 `CLI_NOT_INSTALLED` 时,把其中的安装指引原样告诉用户;若 CLI 装在非标准位置,让用户在插件设置页填写其绝对路径。不要改用 Shell、npx 或其它方式绕过本插件去执行 TapTap 业务命令。
 
 > **手册名对照(必读)**:各手册正文里出现的 `taptap-app-edit`、`taptap-materials` 等名称,沿用自 CLI 自带的同名 Agent Skill。在本插件里它们不是 Skill,而是随包手册,按下表读取:
 >
@@ -18,7 +18,7 @@
 > | `taptap-package-management` | `taptap-suite/references/taptap-package-management` |
 > | `taptap-test-plan` | `taptap-suite/references/taptap-test-plan` |
 >
-> 读法:`ghost_manual({ghost_id:"taptap-cli", path:"taptap-suite/references/taptap-app-edit/MANUAL.md"})`。`path` 必须是**以 `.md` 结尾的完整文件路径**:传目录会返回 MANUAL_PATH_NOT_FOUND,路径里也不允许出现 `..`。读该子能力下的参考文件时 path 形如 `"taptap-suite/references/taptap-app-edit/references/review-risk-checklist.md"`;正文里的相对链接(如 `../../shared-execution.md`)要按当前文件的位置换算成上面这种完整路径后再读。
+> 读法:`ghost_manual({ghost_id:"taptap-cli", path:"taptap-suite/references/taptap-app-edit/MANUAL.md"})`。`path` 必须是**以 `.md` 结尾的完整文件路径**:传目录会返回 MANUAL_PATH_NOT_FOUND,路径里也不允许出现 `..`。**本手册内所有链接的目标已经是 `ghost_manual` 的 path,原样传入即可**(例如 `[shared execution](taptap-suite/references/shared-execution.md)` 就读 `taptap-suite/references/shared-execution.md`),不需要再按当前文件位置换算。
 >
 > **在 Cindy 里处理 TapTap 业务,一律以本插件的手册为准。**
 >
