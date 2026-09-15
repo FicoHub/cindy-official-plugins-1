@@ -862,6 +862,10 @@ test('a write that fails ambiguously is reported as unknown, never as failed', (
   // the tool result, or the agent only ever sees prose. Other CLI-backed
   // plugins in this repository surface the same field name.
   assert.match(mainSource, /if \(executionState\) payload\.execution_state = executionState;/);
+  // …and in the MCP-shaped structured content, which is the form the host's
+  // error sanitizer actually retains.
+  assert.match(mainSource, /payload\.structuredContent = Object\.assign\(/);
+  assert.match(mainSource, /structuredContent[\s\S]{0,200}execution_state: executionState/);
   assert.match(mainSource, /result && result\.execution_state/);
 });
 

@@ -62,6 +62,15 @@ function fail(callId, errorCode, message, executionState, data) {
   // and any handles a half-finished upload already created. Dropping it here
   // would leave the agent unable to resume without re-uploading.
   if (data !== undefined) payload.data = data;
+  // The host keeps the execution state only when it also travels in MCP-shaped
+  // structured content — that is why the bundled TapTap Maker runtime sends
+  // both (see README, "Cindy's error sanitizer retains the execution state").
+  // Without this the agent receives the prose and the state is dropped.
+  payload.structuredContent = Object.assign(
+    { success: false, message: message },
+    executionState ? { execution_state: executionState } : {},
+    data !== undefined ? { data: data } : {}
+  );
   reply(callId, payload);
 }
 
