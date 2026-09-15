@@ -349,3 +349,31 @@ test('account metadata failures provide local service recovery before Gmail is r
     } finally { h.close(); }
   }
 });
+
+test('lost write acknowledgements report unknown outcome without exposing IPC errors', async () => {
+  for (const mode of ['reject-before', 'reject-after', 'missing', 'invalid']) {
+    const h = harness({ parts: [attachment('first.json', 'log'), attachment('log.json', 'log')] });
+    const original = h.context.cindy.send;
+    let attempted;
+    h.context.cindy.send = async (req) => {
+      if (req.type !== 'fs-request' || !req.path.includes('file-1-')) return original(req);
+      attempted = json(req);
+      if (mode === 'reject-before') throw new Error('IPC internal private detail');
+      await original(req);
+      if (mode === 'reject-after') throw new Error('IPC internal private detail');
+      if (mode === 'missing') return undefined;
+      return { ok: true, bytes: 0, path: req.path };
+    };
+    try {
+      const r = await h.run({ action: 'download_attachments' });
+      assert.equal(r.result.complete, false);
+      assert.equal(r.result.files[0].status, 'downloaded');
+      const f = r.result.files[1];
+      assert.equal(f.status, 'unknown'); assert.equal(f.attempted_path, attempted.path);
+      assert.equal(f.root, 'workdir'); assert.equal(f.path, undefined); assert.equal(f.bytes, undefined);
+      assert.match(f.error, /先检查目标目录.*决定是否重试/);
+      assert.ok(!JSON.stringify(r).includes('private detail'));
+      if (mode !== 'reject-before') assert.equal(readFileSync(path.join(h.dir, attempted.path), 'utf8'), 'log');
+    } finally { h.close(); }
+  }
+});

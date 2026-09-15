@@ -260,10 +260,18 @@ async function downloadAttachments(parts, args, account, callId) {
         request.token = args.save_deposit.token;
         request.path = name;
       }
-      var written = await cindy.send(request);
-      if (!written || !written.ok) throw new Error(written && written.message || '文件保存失败，请检查当前任务写入权限');
-      if (written.bytes !== bytes.size || typeof written.path !== 'string') {
-        throw new Error('文件写入结果无法核实，请检查目标目录后再试');
+      var written = null;
+      try {
+        written = await cindy.send(request);
+      } catch (_writeTransportError) {
+        // The Host may have written the file before losing its reply.
+      }
+      if (written && written.ok === false) throw new Error(written.message || '文件保存失败，请检查当前任务写入权限');
+      if (!written || written.ok !== true || written.bytes !== bytes.size || typeof written.path !== 'string') {
+        file.status = 'unknown';
+        file.root = request.root;
+        file.attempted_path = request.path;
+        throw new Error('文件写入结果未知，可能已保存但未收到完整回执；请先检查目标目录中的文件，再决定是否重试，避免重复保存');
       }
       file.status = 'downloaded';
       file.path = written.path;
