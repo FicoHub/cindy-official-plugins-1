@@ -746,6 +746,94 @@ test('the install guidance recommends the suite layout', () => {
   }
 });
 
+test('every carrier of the contract states the same guarantees', () => {
+  // The worker, the manifest, four locales and the manuals all describe one
+  // contract, and an agent reads whichever carrier its language selects. Three
+  // review rounds found the same class of defect — a carrier promising what the
+  // worker does not do, or missing a guarantee another carrier made — so each
+  // claim is asserted across every carrier that has to state it.
+  const CLAIMS = [
+    {
+      name: 'a write with neither dry_run nor yes is refused',
+      carriers: ['call_tool', 'rules', 'manual'],
+      text: {
+        'zh-CN': /既没有 `?dry_run`? 也没有 `?yes`?/,
+        en: /refuses a write carrying neither/,
+        ja: /dry_run も yes も無い書き込みは拒否/,
+        ko: /dry_run 도 yes 도 없는 쓰기는 거부/,
+      },
+    },
+    {
+      name: 'the orchestrated login is an exception to that gate',
+      carriers: ['call_tool', 'rules', 'manual'],
+      text: {
+        'zh-CN': /不走这道确认门禁/,
+        en: /so it is exempt/,
+        ja: /この確認ゲートを通りません/,
+        ko: /이 게이트를 거치지 않습니다/,
+      },
+    },
+    {
+      name: 'the catalogue names what it leaves out',
+      carriers: ['list_tools'],
+      text: {
+        'zh-CN': /dashboard-stats/,
+        en: /dashboard-stats/,
+        ja: /dashboard-stats/,
+        ko: /dashboard-stats/,
+      },
+    },
+    {
+      name: 'local paths resolve against the session workdir',
+      carriers: ['call_tool'],
+      text: {
+        'zh-CN': /会话工作目录/,
+        en: /session workdir/,
+        ja: /セッション作業ディレクトリ/,
+        ko: /세션 작업 디렉터리/,
+      },
+    },
+    {
+      name: 'failures carry the execution state',
+      carriers: ['call_tool'],
+      text: { 'zh-CN': /execution_state/, en: /execution_state/, ja: /execution_state/, ko: /execution_state/ },
+    },
+  ];
+
+  const manual = fs.readFileSync(
+    path.join(root, 'taptap-cli', 'manual', 'taptap-suite', 'MANUAL.md'), 'utf8');
+  const locales = {};
+  for (const loc of ['zh-CN', 'en', 'ja', 'ko']) {
+    locales[loc] = JSON.parse(
+      fs.readFileSync(path.join(root, 'taptap-cli', 'locales', `${loc}.json`), 'utf8'));
+  }
+
+  const missing = [];
+  for (const claim of CLAIMS) {
+    for (const carrier of claim.carriers) {
+      // The rules the worker returns and the manual are Chinese-only, so only
+      // the Chinese wording can be looked for there.
+      const langs = carrier === 'rules' || carrier === 'manual'
+        ? ['zh-CN']
+        : ['zh-CN', 'en', 'ja', 'ko'];
+      for (const loc of langs) {
+        const text = carrier === 'rules' ? workerSource
+          : carrier === 'manual' ? manual
+            : locales[loc].tools[carrier].description;
+        if (!claim.text[loc].test(text)) missing.push(`${claim.name} → ${carrier} (${loc})`);
+      }
+    }
+  }
+  assert.deepEqual(missing, [], 'a carrier is missing a guarantee the others state');
+
+  // The manifest and zh-CN are the same document in two places.
+  for (const tool of ['list_tools', 'call_tool']) {
+    const declared = manifest.tools.find((entry) => entry.name === tool).description;
+    assert.equal(declared, locales['zh-CN'].tools[tool].description,
+      `ghost.json and locales/zh-CN.json disagree about ${tool}`);
+  }
+});
+
 test('every locale discloses what the catalogue leaves out', () => {
   // The localized tool descriptions are the only contract an agent in that
   // language sees. If they promise "whatever the CLI has" without naming the
