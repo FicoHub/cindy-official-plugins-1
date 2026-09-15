@@ -31,9 +31,12 @@ const FIXTURE_TREE = {
     ['stats:get', 'Query dashboard stats metrics'],
     ['materials', 'Inspect local game materials'],
     ['task', 'List, inspect, resume, or cancel long-running upload tasks'],
-    ['update', 'Update taptap-cli to the latest version'],
     ['auth', 'Manage TapTap CLI login credentials'],
+    ['help', 'Help about any command'],
     ['overview', 'Summarize login, visible developers, and visible games'],
+    ['update', 'Update taptap-cli to the latest version'],
+    ['upload', 'Upload an image and ingest it into the app asset library'],
+    ['upload-apk', 'Upload and create an APK package record'],
     ['version', 'Print the CLI version'],
   ],
   app: [
@@ -88,17 +91,29 @@ const FIXTURE_ALIASES = [
   { alias: 'stats:get', canonical: 'dashboard-stats get-dashboard-stats', description: 'Stats' },
 ];
 
+// Flag completions: the CLI answers `__complete <command> --` with the flags
+// that command accepts. A command with no children is recognised by having an
+// entry here (or by being a leaf the parent lists) — which is how the worker
+// tells "a real command with no subcommands" from "an unknown path".
+const FIXTURE_FLAGS = {
+  version: [['--format', 'output format: json|pretty'], ['--help', 'help for version']],
+  'app create-app': [['--data', 'operation input JSON'], ['--dev-id', 'TapTap developer ID'], ['--dry-run', 'preview']],
+  'app +list': [['--dev-id', 'TapTap developer ID'], ['--kw', 'filter by app name or identifier'], ['--page-size', 'apps per page']],
+};
+
 const FIXTURE_CLI = `#!/usr/bin/env node
 const args = process.argv.slice(2);
 const tree = ${JSON.stringify(FIXTURE_TREE)};
 const risk = ${JSON.stringify(FIXTURE_RISK)};
 const schema = ${JSON.stringify(FIXTURE_SCHEMA)};
 const aliases = ${JSON.stringify(FIXTURE_ALIASES)};
+const flagMap = ${JSON.stringify(FIXTURE_FLAGS)};
 const write = (s) => process.stdout.write(s);
 if (args[0] === '__complete') {
+  const partial = args[args.length - 1];
   const path = args.slice(1, -1).join(' ');
-  const children = tree[path] || [];
-  write(children.map((c) => c[0] + '\\t' + c[1]).join('\\n') + '\\n:0\\nCompletion ended with directive: ShellCompDirectiveNoFileComp\\n');
+  const entries = partial === '--' ? (flagMap[path] || []) : (tree[path] || []);
+  write(entries.map((c) => c[0] + '\\t' + c[1]).join('\\n') + '\\n:0\\nCompletion ended with directive: ShellCompDirectiveNoFileComp\\n');
   process.exit(0);
 }
 if (args.length && args[args.length - 1] === '--help') {
@@ -302,11 +317,12 @@ test('the listing is read from the CLI, so nothing is missing from a table', asy
   // A command that is not in the OpenAPI schema (`ai-image` is only reachable
   // through completion) must still be discoverable, or the agent cannot reach
   // the operations underneath it at all.
-  const [top, library, third, prefix] = await callWorker([
+  const [top, library, third, prefix, leaf] = await callWorker([
     listTools('', { cli_path: fakeCli }),
     listTools('asset-library', { cli_path: fakeCli }),
     listTools('asset-library ai-image', { cli_path: fakeCli }),
     listTools('up', { cli_path: fakeCli }),
+    listTools('version', { cli_path: fakeCli }),
   ]);
 
   const topNames = top.result.data.categories.map((entry) => entry.category);
@@ -327,7 +343,17 @@ test('the listing is read from the CLI, so nothing is missing from a table', asy
   ]);
 
   const prefixNames = prefix.result.data.operations.map((op) => op.name);
-  assert.ok(prefixNames.includes('update') === false, 'the exclusion still applies to a prefix search');
+  assert.ok(prefixNames.includes('upload'), 'a prefix search finds the commands under it');
+  assert.ok(prefixNames.includes('upload-apk'), '…all of them, not just the first match');
+  assert.ok(!prefixNames.includes('update'), 'the exclusion still applies to a prefix search');
+
+  // A command with no subcommands must not be handed back as its own child;
+  // what it does have is the flags it accepts.
+  assert.deepEqual(leaf.result.data.operations, [], 'a leaf is not its own child');
+  assert.ok(
+    leaf.result.data.flags.some((f) => f.flag === '--format'),
+    'a leaf reports the flags it accepts',
+  );
 });
 
 test('risk comes from the CLI, so second-level commands are not gated as writes', async () => {
@@ -346,6 +372,17 @@ test('risk comes from the CLI, so second-level commands are not gated as writes'
   assert.equal(bind.result.errorCode, 'CONFIRM_REQUIRED', 'binding a Spark version is a write');
   assert.equal(submit.result.errorCode, 'CONFIRM_REQUIRED', 'review submission is high-risk-write');
   assert.equal(unknown.result.errorCode, 'UNKNOWN_TOOL', 'a command the CLI does not have is rejected');
+});
+
+test('reading documentation is never gated as a write', async () => {
+  // `help` only prints a command's documentation, so its own --help carries no
+  // Risk line; failing closed on that would drag a help dump through the
+  // confirmation gate. Its positionals are command names, not file paths.
+  const [reply] = await callWorker([
+    callTool('help', { cli_path: fakeCli, args: { _positional: ['app', '+list'] } }),
+  ]);
+  assert.equal(reply.result.ok, true);
+  assert.deepEqual(reply.result.data.envelope.data.echo, ['help', 'app', '+list']);
 });
 
 test('every relative link in the manuals resolves inside the package', () => {

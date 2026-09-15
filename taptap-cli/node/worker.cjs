@@ -403,13 +403,13 @@ function parseComplete(stdout) {
   return children;
 }
 
-async function completePath(runOpts, tokens) {
+async function completePath(runOpts, tokens, partial) {
   const options = runOpts || {};
-  const key = (options.cliPath || '') + ' ' + tokens.join(' ');
+  const suffix = partial === undefined ? '' : partial;
+  const key = (options.cliPath || '') + ' ' + tokens.join(' ') + ' ' + suffix;
   if (!treeCache.has(key)) {
     const promise = (async () => {
-      const res = await runBinary(['__complete'].concat(tokens, ['']), {
-        timeoutMs: 120 * 1000,
+      const res = await runBinary(['__complete'].concat(tokens, [suffix]), {
         label: '读取命令树',
         cliPath: options.cliPath,
         cwd: options.cwd,
@@ -532,7 +532,7 @@ const GLOBAL_RULES = [
   '调用示例:先 list_tools(category) 看该域操作与参数(enum=可选值、pattern=格式、required=true=必填),再 call_tool。例——创建冒险游戏:call_tool(name:"app create-app", args:{developer_id:"1001", data:{title:"我的游戏", category:"adventure", package_type:"apk", developer_role:"developer"}, dry_run:true});用户确认后同参数加 yes:true。务必按 inputSchema 的 enum 取值、按 pattern 校验格式,不要猜值。',
   '输出:成功返回的 data 是 CLI 的 JSON envelope(顶层 ok / data / error)。业务失败以 ok:false 返回,message 含 error.type / error.message / error.hint。不要手动传 json / format flag,输出已默认结构化(默认文本的命令如 auth status 由插件自动补 --json)。',
   '失败三态:失败结果带 `execution_state` 字段,只有两个取值。`not_executed` 表示操作没有生效,可按 message 修正参数后重试;`unknown` 表示写操作可能已经在服务端生效,必须先核对实际状态(上传类用 task +list 查看已有任务)再决定是否重试,禁止直接重跑。',
-  '身份:缺 developer_id / app_id 时先用 overview 或 developer 类目查询候选,多候选让用户选,不要猜 ID。',
+  '身份:缺 developer_id / app_id 时先用 overview 或 developer 命令查询候选,多候选让用户选,不要猜 ID。',
   '手册:完整业务流程与领域规范用 ghost_manual({ghost_id:"taptap-cli", path:...}) 读取,入口见 taptap-suite。',
 ];
 
@@ -606,8 +606,15 @@ function isExcluded(index, name) {
 async function childrenAt(runOpts, tokens) {
   const children = await completePath(runOpts, tokens);
   if (children.length || !tokens.length) return { children, exact: true };
+  // Nothing at this path. It may still be a real command that simply has no
+  // subcommands — asking for its flag completions is the way to tell that
+  // apart from a path the CLI does not know.
   const prefix = tokens[tokens.length - 1];
   const siblings = await completePath(runOpts, tokens.slice(0, -1));
+  if (siblings.some((child) => child.name === prefix)) {
+    return { children: await completePath(runOpts, tokens, '--'), exact: true };
+  }
+  // A prefix the CLI has no exact match for: search the parent level with it.
   return { children: siblings.filter((child) => child.name.startsWith(prefix)), exact: false };
 }
 
@@ -660,7 +667,7 @@ async function listTools(params) {
     return {
       ok: false,
       errorCode: 'UNKNOWN_CATEGORY',
-      message: '未知类目 "' + category + '";命令名不能包含空格以外的特殊字符。用 list_tools() 看顶层命令。',
+      message: '未知命令路径 "' + category + '";命令名不能包含空格以外的特殊字符。用 list_tools() 看顶层命令。',
     };
   }
   if (isExcluded(index, tokens[0])) {
@@ -678,11 +685,14 @@ async function listTools(params) {
     return catalogFailure(err);
   }
   const subcommands = found.children.filter(
-    (child) => child.name && child.name.charAt(0) !== '-' && !isExcluded(index, child.name),
+    (child) => child.name && child.name.charAt(0) !== '-' && !isExcluded(index, child.name)
+      // `auth login` hands the device code back to its caller; the worker
+      // redirects it to the orchestrated pair, so it is not offered here.
+      && !(tokens[0] === 'auth' && child.name === 'login'),
   );
   const flags = found.children
     .filter((child) => child.name && child.name.charAt(0) === '-')
-    .map((child) => child.name);
+    .map((child) => ({ flag: child.name, description: child.description }));
 
   // Service levels also carry the OpenAPI schema (inputSchema + risk), which the
   // completion tree does not know about. Merge both, schema first, no duplicates.
@@ -708,7 +718,7 @@ async function listTools(params) {
         rules,
         operations: [],
         flags,
-        hint: '该命令没有子命令。用 call_tool(name:"' + category + '", args:{_help:true}) 查看完整帮助与选项。',
+        hint: '该命令没有子命令,flags 是它接受的选项。参数不确定时用 call_tool(name:"' + category + '", args:{_help:true}) 查看完整帮助。',
       },
     };
   }
@@ -721,7 +731,6 @@ async function listTools(params) {
       // prefix-search hit is already a full command name.
       name: found.exact ? category + ' ' + child.name : child.name,
       description: overlayDescription(child.name, child.description),
-      drill: true,
     }));
 
   return {
@@ -730,8 +739,8 @@ async function listTools(params) {
       category,
       rules,
       operations: operations.concat(childrenOps),
-      hint: '带 drill:true 的条目还有下一层,用 list_tools(category:"<完整命令>") 继续;' +
-        '参数不确定时用 call_tool(name:"<命令>", args:{_help:true}) 看完整帮助。',
+      hint: '任意条目都可以继续下钻:传它的完整命令(category:"<命令>")会返回它的子命令,'
+        + '没有子命令时返回它接受的 flag。参数细节用 call_tool(name:"<命令>", args:{_help:true}) 看完整帮助。',
     },
   };
 }
@@ -894,6 +903,11 @@ const ORCHESTRATED_RISKS = new Map([
   ['auth login-wait', 'write'],
 ]);
 
+// `help` prints a command's documentation and nothing else — its own `--help`
+// carries no `Risk:` line because it is not an operation. Reading is the whole
+// of what it does, so it must not be dragged through the confirmation gate.
+const DOCUMENTATION_HEADS = new Set(['help']);
+
 // The command a call actually names. Container commands (`materials`, `task`)
 // print no risk of their own — the risk lives on the `+` subcommand — so any
 // leading `+` positionals are part of the risk path. `task +resume` is a write
@@ -999,7 +1013,7 @@ async function callTool(params) {
     return {
       ok: false,
       errorCode: 'UNKNOWN_TOOL',
-      message: '未知操作 "' + name + '";先用 list_tools() 看类目概览,或传 category 下钻查看可用操作。',
+      message: '未知操作 "' + name + '";先用 list_tools() 看顶层命令,或传 category:"<命令路径>" 逐层下钻。',
     };
   }
   // Login is orchestrated in the worker so the device code never reaches the
@@ -1089,6 +1103,8 @@ async function callTool(params) {
   let risk = null;
   if (ORCHESTRATED_RISKS.has(name)) {
     risk = ORCHESTRATED_RISKS.get(name);
+  } else if (DOCUMENTATION_HEADS.has(tokens[0])) {
+    risk = 'read';
   } else if (alias) {
     try {
       const services = await getCatalog(runOpts);
@@ -1137,7 +1153,8 @@ async function callTool(params) {
       message: '操作 ' + name + ' 的风险级别是 ' + risk + ',需要先取得用户明确同意:先用 dry_run:true 预览,用户确认后再用相同参数加 yes:true 执行。',
     };
   }
-  if (!helpOnly && needsLocalFiles(args) && !runOpts.cwd) {
+  // `help` takes command names as positionals, never paths, and reads no files.
+  if (!helpOnly && !DOCUMENTATION_HEADS.has(tokens[0]) && needsLocalFiles(args) && !runOpts.cwd) {
     return {
       ok: false,
       errorCode: 'WORKDIR_REQUIRED',
