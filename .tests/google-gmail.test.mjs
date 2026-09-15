@@ -218,3 +218,40 @@ test('default account cannot change after metadata request, and repeated workdir
     assert.equal(readFileSync(path.join(repeat.dir, first.result.files[0].path), 'utf8'), 'log');
   } finally { repeat.close(); }
 });
+
+test('save directory preserves same-name attachments across batches and retries', async () => {
+  const payload = { parts: Array.from({ length: 17 }, (_, i) => attachment('same-' + 'x'.repeat(120) + '.txt', String(i))) };
+  const h = harness(payload);
+  const args = { action: 'download_attachments', account: 'account-a', save_deposit: { token: 'host-ticket' } };
+  try {
+    const first = await h.run(args);
+    h.context.cindy.fetch = async () => ({ ok: true, status: 200, body: JSON.stringify({ id: 'message', payload }) });
+    const second = await h.run({ ...args, attachment_ids: first.result.remaining_attachment_ids });
+    const retry = await h.run({ ...args, attachment_ids: first.result.remaining_attachment_ids });
+    assert.equal(second.result.complete, true); assert.equal(retry.result.complete, true);
+    const files = [...first.result.files, ...second.result.files, ...retry.result.files];
+    assert.equal(new Set(files.map((f) => f.path)).size, 18);
+    for (const [i, f] of files.entries()) {
+      assert.equal(f.root, 'save');
+      assert.ok(f.path.length <= 64); assert.ok(f.path.endsWith('.txt'));
+      assert.equal(readFileSync(path.join(h.dir, f.path), 'utf8'), String(Math.min(i, 16)));
+    }
+  } finally { h.close(); }
+});
+
+test('attachment authorization failures preserve Google details and suggest recovery', async () => {
+  for (const status of [401, 403]) {
+    const h = harness(attachment('log.json', 'log', { body: { size: 3, attachmentId: 'remote' } }), {
+      responses: [{ ok: true, status, body: JSON.stringify({ error: { message: 'Google detail' } }) }],
+    });
+    try {
+      const r = await h.run({ action: 'download_attachments' });
+      assert.equal(r.result.complete, false);
+      const f = r.result.files[0];
+      assert.equal(f.status, 'failed'); assert.match(f.error, new RegExp('HTTP ' + status));
+      assert.match(f.error, /Google detail/); assert.match(f.error, /Gmail 插件详情重新连接/);
+      if (status === 403) assert.match(f.error, /配额或组织策略/);
+      assert.equal(h.writes.length, 0);
+    } finally { h.close(); }
+  }
+});

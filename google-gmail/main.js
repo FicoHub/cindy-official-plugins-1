@@ -40,7 +40,7 @@ async function api(opts) {
     var message = data && data.error && data.error.message
       ? data.error.message
       : (response.body || '').slice(0, 200);
-    return { err: 'Gmail API 返回 HTTP ' + response.status + ':' + message };
+    return { err: 'Gmail API 返回 HTTP ' + response.status + ':' + message, status: response.status };
   }
   return { data: data };
 }
@@ -188,9 +188,10 @@ async function downloadAttachments(parts, args, account, callId) {
   var files = [];
   var nonce = new Uint8Array(16);
   crypto.getRandomValues(nonce);
-  var directory = 'gmail-attachments/' + Array.from(nonce, function (byte) {
+  var downloadId = Array.from(nonce, function (byte) {
     return byte.toString(16).padStart(2, '0');
   }).join('');
+  var directory = 'gmail-attachments/' + downloadId;
   // Bound each batch; callers get the remaining IDs rather than losing them silently.
   for (var i = 0; i < Math.min(selected.length, 16); i++) {
     var part = selected[i];
@@ -206,18 +207,31 @@ async function downloadAttachments(parts, args, account, callId) {
             '/attachments/' + encodeURIComponent(body.attachmentId),
           account: account, callId: callId,
         });
-        if (response.err) throw new Error(response.err);
+        if (response.err) {
+          if (response.status === 401) throw new Error(response.err + '；账号授权可能已失效，请到 Gmail 插件详情重新连接该账号后重试');
+          if (response.status === 403) throw new Error(response.err + '；请检查该账号的邮件访问权限；若缺少授权，请到 Gmail 插件详情重新连接。若为配额或组织策略限制，请按 Google 错误原因处理');
+          throw new Error(response.err);
+        }
         body = response.data;
       }
       var bytes = attachmentBase64(body, part.view.size);
       // Remote filenames are labels, never paths. Prefix defeats dotfiles and Windows devices.
-      var name = 'file-' + i + '-' + part.view.filename.replace(/[^a-zA-Z0-9._-]/g, '_')
-        .slice(0, 100).replace(/\.+$/, '_');
+      var saveToDirectory = args.save_deposit && args.save_deposit.token;
+      var prefix = 'file-' + (saveToDirectory ? downloadId + '-' : '') + i + '-';
+      var label = part.view.filename.replace(/[^a-zA-Z0-9._-]/g, '_').replace(/\.+$/, '_');
+      // Host paths allow at most 64 characters per segment. Keep a short extension.
+      var maxLabel = 64 - prefix.length;
+      var extension = label.match(/\.[a-zA-Z0-9]{1,10}$/);
+      if (label.length > maxLabel) {
+        var suffix = extension ? extension[0] : '';
+        label = label.slice(0, maxLabel - suffix.length) + suffix;
+      }
+      var name = prefix + label.replace(/\.+$/, '_');
       var request = {
         type: 'fs-request', op: 'write', root: 'workdir', callId: callId,
         path: directory + '/' + name, encoding: 'base64', content: bytes.content,
       };
-      if (args.save_deposit && args.save_deposit.token) {
+      if (saveToDirectory) {
         request.root = 'save';
         request.token = args.save_deposit.token;
         request.path = name;
