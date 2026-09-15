@@ -1348,7 +1348,14 @@ async function callTool(params) {
     // A bare non-zero exit with no envelope (crash, signal, killed helper) is
     // likewise indeterminate for a write.
     const err = env && env.ok === false && env.error ? env.error : null;
-    const ambiguous = Boolean(err) && /ambiguous|unknown|indeterminate/i.test(String(err.subtype || '') + String(err.type || ''));
+    let ambiguous = Boolean(err) && /ambiguous|unknown|indeterminate/i.test(String(err.subtype || '') + String(err.type || ''));
+    // A batch can fail after some items already succeeded: the manual tells the
+    // agent to keep the handles that came back and retry only the items without
+    // one. Calling that "not executed" would invite a full re-run and duplicate
+    // uploads, so any failure payload that still carries results stays unknown.
+    const carriesResults = Boolean(env && env.data) && typeof env.data === 'object'
+      && Object.keys(env.data).length > 0;
+    if (isWrite && carriesResults) ambiguous = true;
     const state = (err && !ambiguous) ? 'not_executed' : unknownForWrite;
     return {
       ok: false,
@@ -1386,6 +1393,10 @@ function handle(req, fn) {
       reply(req.id, {
         ok: false,
         errorCode: 'INTERNAL',
+        // An exception thrown while running call_tool may have happened before
+        // or after the CLI started (execFile rejecting an argument, for
+        // example), so the outcome is unknown; listing reads nothing.
+        execution_state: req.method === 'taptap/call_tool' ? 'unknown' : 'not_executed',
         message: 'worker 内部错误:' + ((err && err.message) || String(err)),
       });
     });

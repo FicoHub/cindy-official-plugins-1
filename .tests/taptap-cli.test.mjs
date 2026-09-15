@@ -46,6 +46,7 @@ const FIXTURE_TREE = {
   app: [
     ['+bind-spark-version', 'Bind a Spark version'],
     ['fail-op', 'Always fails with a structured error'],
+    ['partial-op', 'Fails after uploading some items'],
     ['+list', 'List games visible under a developer account'],
     ['create-app', 'Create a game draft'],
     ['submit-app-review', 'Submit app edit for review'],
@@ -101,6 +102,7 @@ const FIXTURE_RISK = {
   'profile use': 'write',
   'auth logout': 'write',
   'app fail-op': 'write',
+  'app partial-op': 'write',
 };
 
 const FIXTURE_SCHEMA = [
@@ -152,6 +154,10 @@ if (args[0] === 'aliases') {
 }
 if (args[1] === 'fail-op') {
   process.stderr.write(JSON.stringify({ ok: false, error: { type: 'validation', subtype: 'invalid_argument', message: 'nope', hint: 'fix it' } }));
+  process.exit(2);
+}
+if (args[1] === 'partial-op') {
+  process.stderr.write(JSON.stringify({ ok: false, error: { type: 'api', subtype: 'partial_failure', message: '2 of 3 uploaded' }, data: { uploaded: [{ handle: 'h1' }, { handle: 'h2' }] } }));
   process.exit(2);
 }
 write(JSON.stringify({ ok: true, data: { echo: args, workdir: process.cwd() } }));
@@ -342,6 +348,35 @@ test('a CLI failure envelope is read from stderr and reported as a business erro
   assert.match(reply.result.message, /fix it/);
 });
 
+test('a write that failed with partial results is never "not executed"', async () => {
+  // A batch can fail after some items already uploaded; the manual tells the
+  // agent to keep the returned handles and retry only what has none. Reporting
+  // "not_executed" beside those handles would invite a full re-run and
+  // duplicate uploads, so a failure payload carrying results stays unknown.
+  const [reply] = await callWorker([
+    callTool('app partial-op', { cli_path: fakeCli, args: { yes: true } }),
+  ]);
+  assert.equal(reply.result.errorCode, 'BUSINESS_ERROR');
+  assert.equal(reply.result.execution_state, 'unknown');
+  assert.equal(reply.result.data.data.uploaded.length, 2, 'the handles still reach the agent');
+});
+
+test('an internal crash still reports whether the CLI may have run', async () => {
+  // execFile refuses an argument with a NUL byte before spawning, so the
+  // exception never reaches a failure branch that knows the risk. The global
+  // handler must still answer the tri-state rather than leave a write's fate
+  // unstated.
+  const [reply] = await callWorker([
+    callTool('upload', {
+      cli_path: fakeCli,
+      workdir: fs.realpathSync(process.env.TMPDIR || '/tmp'),
+      args: { _positional: ['bad' + String.fromCharCode(0) + 'file.png'], yes: true },
+    }),
+  ]);
+  assert.equal(reply.result.errorCode, 'INTERNAL');
+  assert.equal(reply.result.execution_state, 'unknown');
+});
+
 test('an unreadable alias list closes the alias route', async () => {
   // An alias is classified by its canonical target (`stats:get` ->
   // dashboard-stats, which is excluded). Without the mapping it cannot be
@@ -503,6 +538,19 @@ test('risk comes from the CLI, so second-level commands are not gated as writes'
   assert.equal(bind.result.errorCode, 'CONFIRM_REQUIRED', 'binding a Spark version is a write');
   assert.equal(submit.result.errorCode, 'CONFIRM_REQUIRED', 'review submission is high-risk-write');
   assert.equal(unknown.result.errorCode, 'UNKNOWN_TOOL', 'a command the CLI does not have is rejected');
+});
+
+test('the orchestrated login is documented as an exception to the write gate', () => {
+  // The two login heads are declared `write` (a read-only session refuses
+  // them) but they are the login flow itself, so they do not go through the
+  // confirmation gate. The contract has to say so, or it promises something
+  // the worker does not do.
+  const contract = JSON.stringify(manifest) +
+    ['zh-CN', 'en', 'ja', 'ko'].map((loc) => fs.readFileSync(path.join(root, 'taptap-cli', 'locales', `${loc}.json`), 'utf8')).join('\n') +
+    fs.readFileSync(path.join(root, 'taptap-cli', 'manual', 'taptap-suite', 'MANUAL.md'), 'utf8') +
+    workerSource;
+  assert.match(contract, /login-start/);
+  assert.match(contract, /不走这道确认门禁|exempt from that gate|この確認ゲートを通りません|이 확인 게이트를 거치지 않습니다|不走这道确认门禁/);
 });
 
 test('the CLI\'s embedded manuals are readable through the plugin', async () => {
@@ -855,7 +903,7 @@ test('a write that fails ambiguously is reported as unknown, never as failed', (
   // A structured CLI error is usually the CLI deciding the outcome (not
   // executed), but an ambiguous subtype (e.g. ambiguous_outcome) means the CLI
   // does not know whether a write was applied, so it must stay unknown.
-  assert.match(workerSource, /const ambiguous = Boolean\(err\)/);
+  assert.match(workerSource, /let ambiguous = Boolean\(err\)/);
   assert.match(workerSource, /\(err && !ambiguous\) \? 'not_executed' : unknownForWrite/);
 
   // The worker computing the state is not enough: the brain must carry it into
