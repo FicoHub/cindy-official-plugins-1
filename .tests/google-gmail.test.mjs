@@ -155,7 +155,7 @@ test('partial batch keeps successful files and reports individual failures', asy
     const r = await h.run({ action: 'download_attachments' });
     assert.equal(r.result.complete, false);
     assert.deepEqual(r.result.files.map((f) => f.status), ['downloaded', 'failed', 'downloaded']);
-    assert.match(r.result.files[1].error, /检查网络连接后重试此附件/);
+    assert.match(r.result.files[1].error, /检查网络连接及 Cindy 插件连接状态后重试/);
     assert.ok(!JSON.stringify(r).includes('Network interrupted'));
     assert.equal(h.writes.length, 2);
   }
@@ -286,6 +286,66 @@ test('initial Gmail request reports authorization recovery before any attachment
       assert.match(r.message, /Gmail 插件详情重新连接/);
       if (status === 403) assert.match(r.message, /配额或组织策略/);
       assert.equal(requests, 1); assert.equal(h.writes.length, 0);
+    } finally { h.close(); }
+  }
+});
+
+test('Host failures are normalized at both message and attachment boundaries', async () => {
+  for (const throws of [false, true]) for (const stage of ['message', 'attachment']) {
+    const h = harness(fixture());
+    const original = h.context.cindy.fetch;
+    let count = 0;
+    h.context.cindy.fetch = async (req) => {
+      count++;
+      if (stage === 'attachment' && count === 1) return original(req);
+      if (throws) throw new Error('Network interrupted private detail');
+      return { ok: false, message: 'Network interrupted private detail' };
+    };
+    try {
+      const r = await h.run({ action: 'read', download_attachments: true });
+      const message = stage === 'message' ? r.message : r.result.downloads.files[1].error;
+      assert.match(message, /检查网络连接.*重试/);
+      assert.ok(!JSON.stringify(r).includes('private detail'));
+      if (stage === 'message') { assert.equal(r.ok, false); assert.equal(h.writes.length, 0); }
+      else { assert.equal(r.result.downloads.complete, false); assert.equal(h.writes.length, 2); }
+    } finally { h.close(); }
+  }
+});
+
+test('transport failure of writes reports unknown outcome instead of inviting blind retry', async () => {
+  for (const action of ['send', 'draft']) for (const throws of [false, true]) {
+    const h = harness({});
+    h.context.cindy.fetch = async () => {
+      if (throws) throw new Error('private detail');
+      return { ok: false, message: 'private detail' };
+    };
+    try {
+      const r = await h.run({ action, to: 'recipient@example.test', subject: 'test', body_text: 'test' });
+      assert.equal(r.ok, false); assert.match(r.message, /操作结果未知/);
+      assert.match(r.message, /勿直接重复提交/); assert.ok(!r.message.includes('private detail'));
+    } finally { h.close(); }
+  }
+});
+
+test('account metadata failures provide local service recovery before Gmail is requested', async () => {
+  const cases = [
+    { fetch: async () => { throw new Error('private detail'); }, expected: /本地账号服务.*重试/ },
+    { fetch: async () => ({ ok: false, status: 503 }), expected: /本地账号服务暂时不可用.*重试/ },
+    { fetch: async () => ({ ok: false, status: 403 }), expected: /拒绝访问.*检查连接状态后重试/ },
+    { fetch: async () => ({ ok: true, json: async () => { throw new Error('private detail'); } }), expected: /数据无法解析.*重试/ },
+    { data: {}, expected: /数据格式异常.*重试/ },
+    { data: [{ key: 'gmail_account', clientConfigured: true }], expected: /列表数据格式异常.*重试/ },
+    { data: [{ key: 'gmail_account', clientConfigured: true, accounts: [null] }], expected: /列表数据格式异常.*重试/ },
+    { data: [{ key: 'gmail_account', clientConfigured: true, accounts: [] }], expected: /尚未连接 Gmail 账号.*授权/ },
+  ];
+  for (const c of cases) {
+    const h = harness(fixture());
+    h.context.fetch = c.fetch || (async () => ({ ok: true, json: async () => c.data }));
+    try {
+      const r = await h.run({ action: 'download_attachments' });
+      assert.equal(r.ok, false); assert.match(r.message, c.expected);
+      assert.ok(!r.message.includes('private detail'));
+      assert.equal(h.calls.length, 0); assert.equal(h.writes.length, 0);
     } finally { h.close(); }
   }
 });

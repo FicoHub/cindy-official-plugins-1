@@ -25,8 +25,16 @@ async function api(opts) {
     request.headers['Content-Type'] = 'application/json';
     request.body = JSON.stringify(opts.body);
   }
-  var response = await cindy.fetch(request);
-  if (!response.ok) return { err: response.message || 'Gmail 请求失败，请检查连接状态' };
+  var transportError = request.method === 'GET'
+    ? 'Gmail 请求未完成，请检查网络连接及 Cindy 插件连接状态后重试；此请求未取得完整内容'
+    : 'Gmail 请求未完成，操作结果未知；请先到 Gmail 核实邮件或草稿是否已创建，勿直接重复提交，并检查网络及 Cindy 插件连接状态';
+  var response;
+  try {
+    response = await cindy.fetch(request);
+  } catch (_transportError) {
+    return { err: transportError };
+  }
+  if (!response || !response.ok) return { err: transportError };
   if (response.truncated) return { err: 'Gmail 响应超过客户端上限，结果不完整；若为发送或创建草稿，请先检查 Gmail 中的实际状态' };
   var data = null;
   if (response.body) {
@@ -49,12 +57,29 @@ async function api(opts) {
 }
 
 async function listAccounts() {
-  var response = await fetch('/oauth');
-  if (!response.ok) return fail('账号状态查询失败(' + response.status + ')');
-  var list = await response.json();
+  var response;
+  try {
+    response = await fetch('/oauth');
+  } catch (_transportError) {
+    return fail('无法连接 Cindy 本地账号服务，请稍后重试；若持续失败，请重新打开 Gmail 插件详情检查服务状态');
+  }
+  if (!response.ok) {
+    if (response.status === 401 || response.status === 403) return fail('账号状态服务拒绝访问，请到 Gmail 插件详情检查连接状态后重试（HTTP ' + response.status + '）');
+    return fail('Cindy 本地账号服务暂时不可用，请稍后重试；若持续失败，请重新打开 Gmail 插件详情检查服务状态（HTTP ' + response.status + '）');
+  }
+  var list;
+  try {
+    list = await response.json();
+  } catch (_parseError) {
+    return fail('Cindy 账号状态数据无法解析，请重新打开 Gmail 插件详情后重试');
+  }
+  if (!Array.isArray(list)) return fail('Cindy 账号状态数据格式异常，请重新打开 Gmail 插件详情后重试');
   var entry = list.find(function (item) { return item && item.key === SECRET_KEY; });
   if (!entry || !entry.clientConfigured) {
     return fail('内置应用身份缺失，请升级 Cindy 后重试');
+  }
+  if (!Array.isArray(entry.accounts) || entry.accounts.some(function (account) { return !account || typeof account.id !== 'string' || !account.id; })) {
+    return fail('Cindy 账号列表数据格式异常，请重新打开 Gmail 插件详情后重试');
   }
   if (!entry.accounts.length) {
     return fail('尚未连接 Gmail 账号，请到「' + PLUGIN_NAME + '」详情页单独授权');
@@ -205,16 +230,11 @@ async function downloadAttachments(parts, args, account, callId) {
       }
       var body = part.body;
       if (body.attachmentId) {
-        var response;
-        try {
-          response = await api({
-            url: BASE + '/messages/' + encodeURIComponent(args.message_id) +
-              '/attachments/' + encodeURIComponent(body.attachmentId),
-            account: account, callId: callId,
-          });
-        } catch (_transportError) {
-          throw new Error('附件网络请求未完成，未保存该文件；请检查网络连接后重试此附件，无需仅因此重新连接账号');
-        }
+        var response = await api({
+          url: BASE + '/messages/' + encodeURIComponent(args.message_id) +
+            '/attachments/' + encodeURIComponent(body.attachmentId),
+          account: account, callId: callId,
+        });
         if (response.err) throw new Error(response.err);
         body = response.data;
       }
