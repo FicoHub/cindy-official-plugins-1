@@ -44,6 +44,11 @@
         "emails": []
       }
     },
+    "taptap-cli": {
+      "audience": {
+        "emails": []
+      }
+    },
     "cindy-notion": {
       "audience": "all"
     },
@@ -70,6 +75,12 @@
       "audience": {
         "emails": []
       }
+    },
+    "baguette-simulator": {
+      "audience": {
+        "emails": []
+      },
+      "tier": "builtin"
     }
   }
 }

@@ -60,6 +60,7 @@ permission gate.
 | <img src="./qq-mail/assets/icon.png" width="22" alt=""> | QQ Mail | [`qq-mail`](./qq-mail) | Cindy stores the authorization code securely; search, read, organize, and send via IMAP/SMTP on demand |
 | <img src="./yahoo-mail/assets/icon.png" width="22" alt=""> | Yahoo Mail | [`yahoo-mail`](./yahoo-mail) | Cindy stores the app password securely; manage and send Yahoo Mail via IMAP/SMTP on demand |
 | <img src="./taptap-maker/assets/icon.png" width="22" alt=""> | TapTap Maker | [`taptap-maker`](./taptap-maker) | Account connection, project sync, builds, and official news tools |
+| <img src="./baguette-simulator/assets/icon.png" width="22" alt=""> | Baguette | [`baguette-simulator`](./baguette-simulator) | Opt-in Baguette iOS simulator with a private device set, sidebar controls, and acknowledged keyboard input; targeted rollout |
 | <img src="./ios-simulator/assets/icon.png" width="22" alt=""> | iOS Simulator | [`ios-simulator`](./ios-simulator) | Host-owned embedded workflow; Host-authorized fallback hands off the exact task and device to a named external workflow; staged rollout |
 | <img src="./x-manager/assets/icon.png" width="22" alt=""> | X Manager | [`x-manager`](./x-manager) | Search X (Twitter) and post to it — xAI x_search with Grok-subscription / API-key fallback, posting via the official X API v2; currently in a targeted rollout |
 
@@ -150,7 +151,7 @@ experience risk, so review is strict by design. Four hard principles:
 - [ ] Four-language locales complete; `node --test .tests/localization.test.mjs`
       passes
 - [ ] Every changed plugin's packaged `.cindy` was installed and exercised on a
-      real device running a stable production Cindy build, and the PR
+      real device running a stable production or Beta Cindy build, and the PR
       verification box is checked; when the plugin declares `minCindyVersion`,
       the verified Cindy build is greater than or equal to it
 - [ ] `ghost.json.version` bumped; `provisioning.json` entry present with an
@@ -250,7 +251,7 @@ authors do not need to perform a separate migration checklist.
 New plugins use `schemaVersion: 3` and declare capabilities directly through
 fields such as `tools`, `network`, `node`, or `notify: true`; v3 must not contain
 `slots`. Every v3 package declares its own `minCindyVersion`: use the first
-stable Cindy version that supports every Host capability and manifest field
+published Cindy version (stable or Beta) that supports every Host capability and manifest field
 the concrete plugin actually depends on. Manifest v3 itself does not impose a
 repository-wide Cindy version floor. Existing v2 manifests stay untouched until
 that plugin's packaged content actually changes. The PR that changes it must
@@ -296,7 +297,7 @@ source may be consulted only for implementation patterns.
 
 Start `ghost.json` from this minimal runnable Manifest-v3 shape:
 
-The `1.2.3` below is only an example. Replace it with the first stable Cindy
+The `1.2.3` below is only an example. Replace it with the first published Cindy (stable or Beta)
 version that supports the concrete plugin you are building.
 
 ```json
@@ -382,12 +383,30 @@ Before submitting to this official repository, add a `provisioning.json` entry
 and declare locale files for exactly `zh-CN`, `en`, `ja`, and `ko`, covering the
 plugin text and every tool description. Then follow
 [`CONTRIBUTING.md`](./CONTRIBUTING.md) and install the exact packaged `.cindy` on
-a real device running an eligible stable production Cindy build.
+a real device running an eligible stable production or Beta Cindy build.
 
-`taptap-maker/vendor/taptap-maker/` ships the official `@taptap/maker@0.0.32`
+`taptap-maker/vendor/taptap-maker/` ships the official `@taptap/maker@0.0.33`
 with the plugin. When upgrading, replace the published npm package content
-wholesale and bump the plugin version accordingly — do not edit the generated
-`dist/maker.js` by hand.
+wholesale and bump the plugin version accordingly. Preserve these reviewed Cindy
+compatibility patches until the official package includes equivalent fixes:
+
+- `normalizeRemoteProxyExecutionState` accepts `executed`, preserving confirmed
+  execution (original patch: `ff54f59`).
+- The BLACKLISTED `tools/call` rejection includes `structuredContent` with
+  `success: false`, its message, and `execution_state: "not_executed"`, so Cindy's
+  error sanitizer retains the execution state.
+- The BLACKLISTED `tools/list` response retains the restricted tool list and adds
+  `_meta.maker_access` with the original code and message. Cindy returns the account
+  restriction and `not_executed` before dispatch rather than a generic missing-tool error.
+- `user-skills pull` rejects existing symlinks in all project/client skill roots before any write.
+- `tools/list`, `resources/read`, and `tools/call` check account access per request
+  instead of using a startup-only `accessStatePromise`; PAT changes take effect
+  without waiting for the old Runtime process to expire. This adds an authentication
+  check to each of these requests; it does not change the upstream access policy.
+
+Apart from these patches and the retained `LICENSE`, vendor files must match the
+official npm package. Recheck the patch list and regression tests on every upgrade;
+do not add unrelated manual bundle edits.
 
 ## Community
 

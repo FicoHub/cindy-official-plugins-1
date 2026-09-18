@@ -54,6 +54,7 @@
 | <img src="./qq-mail/assets/icon.png" width="22" alt=""> | QQ 邮箱 | [`qq-mail`](./qq-mail) | Cindy 安全保存授权码，按需通过 IMAP/SMTP 搜索、阅读、整理和发送 |
 | <img src="./yahoo-mail/assets/icon.png" width="22" alt=""> | Yahoo Mail | [`yahoo-mail`](./yahoo-mail) | Cindy 安全保存应用密码，按需通过 IMAP/SMTP 管理和发送邮件 |
 | <img src="./taptap-maker/assets/icon.png" width="22" alt=""> | TapTap Maker | [`taptap-maker`](./taptap-maker) | 账号连接、项目同步、构建与官方动态工具 |
+| <img src="./baguette-simulator/assets/icon.png" width="22" alt=""> | Baguette | [`baguette-simulator`](./baguette-simulator) | 显式选用 Baguette 的独立 iOS 模拟器、侧边栏恢复与按键释放；定向发布 |
 | <img src="./ios-simulator/assets/icon.png" width="22" alt=""> | iOS 模拟器 | [`ios-simulator`](./ios-simulator) | Cindy 主机托管的内嵌工作流；主机授权回退时将原始任务和精确设备交给指定外部工作流；定向灰度 |
 | <img src="./x-manager/assets/icon.png" width="22" alt=""> | X Manager | [`x-manager`](./x-manager) | 在 X（Twitter）上搜舆情、发帖——xAI x_search，Grok 订阅 / API key 双通道降级，发帖走 X 官方 API v2；目前定向灰度中 |
 
@@ -122,7 +123,7 @@
 - [ ] 每个 tool 的 `description` 与实际行为一致——能力、限制、返回值、副作用
 - [ ] 面向用户的报错可行动；无裸状态码、无英文堆栈
 - [ ] 四语言 locale 齐全；`node --test .tests/localization.test.mjs` 通过
-- [ ] 每个改动插件都已在运行正式稳定版 Cindy 的实际设备上安装真实 `.cindy` 包并
+- [ ] 每个改动插件都已在运行正式稳定版或 Beta 版 Cindy 的实际设备上安装真实 `.cindy` 包并
       验证核心功能，且已勾选 PR 验证项；插件声明 `minCindyVersion` 时，验证所用
       Cindy 版本不低于该最低版本
 - [ ] `ghost.json.version` 已 bump；`provisioning.json` 有对应条目且 PR 描述里
@@ -205,7 +206,7 @@ cindy-art/
 新插件使用 `schemaVersion: 3`，并通过 `tools`、`network`、`node`、`notify: true`
 等顶层字段直接声明能力；v3 不得再有 `slots`。每个 v3 插件包都必须独立填写
 `minCindyVersion`：它应是同时支持这个具体插件所依赖的全部 Host 能力和 Manifest 字段的
-第一个 Cindy 正式稳定版本。Manifest v3 本身不设置仓库级 Cindy 版本下限。现有 v2 清单
+第一个已发布的 Cindy 版本（正式稳定版或 Beta 版）。Manifest v3 本身不设置仓库级 Cindy 版本下限。现有 v2 清单
 保持原样，直到该插件的实际打包内容发生变化；改动它的 PR
 必须同时迁移到 v3。本仓不会只为 schema 变化批量迁移、批量发布现有插件。
 
@@ -241,7 +242,7 @@ my-plugin/
 
 `ghost.json` 从下面这份最小可运行 Manifest v3 开始：
 
-下面的 `1.2.3` 只是示例；请替换成实际支持当前插件的第一个 Cindy 正式稳定版本。
+下面的 `1.2.3` 只是示例；请替换成实际支持当前插件的第一个已发布的 Cindy 版本（正式稳定版或 Beta 版）。
 
 ```json
 {
@@ -317,11 +318,27 @@ unzip -Z1 /tmp/my-plugin-1.0.0.cindy
 提交到官方仓库前，还必须补充 `provisioning.json` 条目，并在 Manifest 中声明恰好
 `zh-CN`、`en`、`ja`、`ko` 四份 locale 文件，完整覆盖插件文案和全部工具描述；随后
 按 [`CONTRIBUTING.zh-CN.md`](./CONTRIBUTING.zh-CN.md) 自查，并在符合最低版本要求的
-Cindy 正式稳定版实机上安装真实 `.cindy` 包完成验证。
+Cindy 正式稳定版或 Beta 版实机上安装真实 `.cindy` 包完成验证。
 
 `taptap-maker/vendor/taptap-maker/` 固定随插件分发官方
-`@taptap/maker@0.0.32`。升级时应整体替换 npm 包发布内容并同步更新插件版本，
-不要单独修改生成后的 `dist/maker.js`。
+`@taptap/maker@0.0.33`。升级时应整体替换 npm 包发布内容并同步更新插件版本，
+在官方包包含等价修复前，保留以下经审查的 Cindy 兼容补丁：
+
+- `normalizeRemoteProxyExecutionState` 接受 `executed`，保留确定已执行状态
+  （最初补丁：`ff54f59`）。
+- BLACKLISTED 的 `tools/call` 拦截返回 `structuredContent`，包含
+  `success: false`、原提示和 `execution_state: "not_executed"`，确保 Cindy
+  错误清洗后仍保留执行态。
+- BLACKLISTED 的 `tools/list` 保留受限工具列表，并通过 `_meta.maker_access`
+  携带原始错误码和提示。Cindy 在发送调用前返回账号受限原因和 `not_executed`，
+  不再将其替换为通用的工具不存在提示。
+- `user-skills pull` 在任何写入前拒绝项目及客户端 Skill 根路径中的已有符号链接。
+- `tools/list`、`resources/read`、`tools/call` 按请求检查账号访问状态，
+  不使用启动时的 `accessStatePromise` 缓存；更换 PAT 后无需等待旧 Runtime
+  进程过期。每次上述请求增加一次鉴权检查，但不改变上游访问限制策略。
+
+除以上补丁和保留的 `LICENSE` 外，vendor 文件必须与官方 npm 包一致。
+每次升级都需核对补丁清单和回归测试，不要增加无关的 bundle 手工修改。
 
 ## 社区
 
