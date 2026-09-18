@@ -2,10 +2,13 @@
 // the plugin, then set OUTLOOK_PLAYWRIGHT_MODULE and OUTLOOK_TEST_CHROMIUM.
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
-import {fileURLToPath} from 'node:url';
+import {fileURLToPath,pathToFileURL} from 'node:url';
 const {chromium}=await import(process.env.OUTLOOK_PLAYWRIGHT_MODULE || 'playwright-core');
 const root=new URL('../../outlook-mail/',import.meta.url);
-const screenshots=new URL('./screenshots/',import.meta.url);
+const manifest=JSON.parse(await fs.readFile(new URL('ghost.json',root),'utf8'));
+const screenshots=process.env.OUTLOOK_SCREENSHOTS_DIR
+  ? pathToFileURL(process.env.OUTLOOK_SCREENSHOTS_DIR.replace(/\/$/,'')+'/')
+  : new URL('./screenshots/',import.meta.url);
 const browser=await chromium.launch({...(process.env.OUTLOOK_TEST_CHROMIUM?{executablePath:process.env.OUTLOOK_TEST_CHROMIUM}:{}),headless:true});
 const page=await browser.newPage({viewport:{width:460,height:940}});
 const errors=[],unexpected=[],calls=[];
@@ -53,18 +56,24 @@ await page.route('**/*',async route=>{
 const settled=()=>page.waitForFunction(()=>!document.querySelector('#default-cloud').disabled);
 try {
   await page.goto('https://outlook.example.test/');await settled();
+  const registeredRedirect=key=>'http://127.0.0.1:'+manifest.network.secrets.find(s=>s.key===key).oauth.redirectPort+'/callback';
+  assert.equal(await page.locator('#redirect').textContent(),registeredRedirect('outlook_global'));
   assert(await page.locator('#connect').isDisabled());assert(await page.locator('#advanced').evaluate(e=>e.open));
   assert.doesNotMatch(await page.locator('#accounts').textContent(),/legacy@example|sdk:old/);
   assert.equal(await page.locator('#connection-mode,#sdk-options').count(),0);
   await page.locator('#client-id').fill('invalid');await page.locator('#save-client').click();await settled();assert.equal(calls.length,0);
   await page.locator('#client-id').fill('12345678-1234-1234-1234-123456789abc');await page.locator('#save-client').click();await settled();
   assert.equal(calls.at(-1).path,'/oauth/outlook_global/client');assert(!calls.at(-1).body.includes('clientSecret'));assert.equal(await page.locator('#client-id').inputValue(),'');
+  // The displayed registration hint is not an OAuth request target or input.
+  // Even when changed in the DOM, sign-in delegates only to Host /oauth.
+  await page.locator('#redirect').evaluate(el=>{el.textContent='https://callback.example.test/changed';});
   await page.locator('#connect').click();await settled();
   assert.equal(calls.at(-1).path,'/oauth/outlook_global/connect');assert.equal(await page.locator('#accounts img').count(),0);
+  assert.equal(calls.at(-1).body,null);
   const row=(cloud,id)=>page.locator('[data-cloud="'+cloud+'"] [data-account-id="'+id+'"]');
   nextAccount='g2';await page.locator('#connect').click();await settled();
   await page.locator('#cloud').selectOption('china');await settled();assert(await page.locator('#connect').isDisabled());
-  assert.equal(await page.locator('#redirect').textContent(),'http://127.0.0.1:53688/callback');
+  assert.equal(await page.locator('#redirect').textContent(),registeredRedirect('outlook_china'));
   await page.locator('#client-id').fill('abcdef01-1234-1234-1234-123456789abc');await page.locator('#save-client').click();await settled();
   for(const id of ['c1','c2']){nextAccount=id;await page.locator('#connect').click();await settled();}
   assert.deepEqual(entries.map(e=>e.accounts.map(a=>a.id)),[['g1','g2'],['c1','c2']]);
@@ -110,6 +119,9 @@ try {
   }
   failLoad=true;await page.reload();await page.waitForFunction(()=>document.querySelector('#setup-note').textContent.includes('Unable to load'));
   assert(await page.locator('#connect').isDisabled());assert(await page.locator('#save-client').isDisabled());
+  for(const call of calls.filter(c=>c.path.endsWith('/connect'))){
+    assert.equal(call.method,'POST');assert.equal(call.body,null);
+  }
   assert.deepEqual(errors,[]);assert.deepEqual(unexpected,[]);
   console.log('PASS Host OAuth settings: app setup, missing-config gate, connect/disconnect, failed disconnect, four simultaneous accounts across both clouds, per-cloud defaults, reconnect deduplication and row isolation, disconnect isolation, legacy state ignored, XSS, four locales + fallback, 320px layout, load failure; 4 fixture screenshots.');
 } finally {await browser.close();}
