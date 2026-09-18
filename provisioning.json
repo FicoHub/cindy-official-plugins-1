@@ -71,6 +71,11 @@
       },
       "tier": "builtin"
     },
+    "opendesign-trial": {
+      "audience": {
+        "emails": []
+      }
+    },
     "baguette-simulator": {
       "audience": {
         "emails": []
