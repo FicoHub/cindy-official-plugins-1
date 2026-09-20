@@ -247,6 +247,11 @@ file, and Node/CLI calls, use the
 [authoring and migration reference](./docs/plugin-authoring.md). An Agent can
 derive the required adaptations from this reference and the existing code;
 authors do not need to perform a separate migration checklist.
+Unknown capability declarations must not block plugin development or publication.
+Acceptance does not grant runtime permissions. Even with `minCindyVersion`, users
+may directly install on unsupported clients; plugins must handle missing APIs
+with a supported fallback or an upgrade prompt. See the reference's capability
+compatibility section.
 
 New plugins use `schemaVersion: 3` and declare capabilities directly through
 fields such as `tools`, `network`, `node`, or `notify: true`; v3 must not contain

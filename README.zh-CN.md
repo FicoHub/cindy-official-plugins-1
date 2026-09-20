@@ -202,6 +202,9 @@ cindy-art/
 维护已有插件、v2/v3 字段映射、HTTPS、文件和 Node/CLI 的具体调用见
 [插件编写与迁移参考](./docs/plugin-authoring.zh-CN.md)。Agent 可依据这些事实和
 现有代码自行完成必要适配，作者不需要另外手工执行迁移清单。
+未知能力声明不应阻断插件开发与发布；接受声明不等于运行时授权。即使声明了
+`minCindyVersion`，用户仍可能在不适配的客户端直接安装，插件须处理缺失 API，
+提供安全降级或明确升级提示，详见参考文档中的能力兼容章节。
 
 新插件使用 `schemaVersion: 3`，并通过 `tools`、`network`、`node`、`notify: true`
 等顶层字段直接声明能力；v3 不得再有 `slots`。每个 v3 插件包都必须独立填写

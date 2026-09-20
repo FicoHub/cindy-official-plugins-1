@@ -10,6 +10,30 @@ Forge and a particular harness are not prerequisites. See the
 Manifest, and package format, and [Contributing](../CONTRIBUTING.md) for official
 publishing requirements. This document adds migration mappings and common runtime calls.
 
+## Capability declarations are not a client support gate
+
+Plugin development must not wait for Cindy client capability releases. Within a
+supported manifest format, unfamiliar declarations are data, not a reason to
+reject publication or installation. The validator preserves unknown top-level
+fields, extension fields in capability objects (mainView, panel, card, agent,
+node and secret bindings, preview, skill/manual and their items, subscribe),
+Cindy categories/actions, and subscription topics/hooks. Legacy v2 slot names
+are not checked against a repository-specific capability allowlist.
+
+This does not implement an API or grant permission. Known-field types, safe
+package paths, format constraints, and runtime account/credential/session
+authorization remain enforced. Unknown declarations stay inert until a Host
+implements them; an unresolved credential reference must fail at use time,
+never fall back to another credential or account.
+
+Authors must detect unavailable APIs or handle unsupported-operation results,
+disable only the affected functionality, and offer a clear upgrade prompt or
+a supported fallback. Never bypass a permission denial or silently claim success.
+`minCindyVersion` remains required where applicable for distribution/version
+selection, but is not proof of runtime support: users may directly install a
+package on an incompatible client. Test that case and keep the remaining
+supported functionality usable.
+
 ## Derive changes from the task
 
 The author describes the desired functionality. The implementing Agent reads the
