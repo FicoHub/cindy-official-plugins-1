@@ -55,10 +55,24 @@ await page.route('**/*',async route=>{
 });
 const settled=()=>page.waitForFunction(()=>!document.querySelector('#default-cloud').disabled);
 try {
+  // Ordinary global users can sign in with the bundled application without
+  // opening administrator settings or writing a custom Client ID.
+  entries[0].clientConfigured=Boolean(manifest.network.secrets.find(s=>s.key==='outlook_global').oauth.clientId);
+  await page.goto('https://outlook.example.test/');await settled();
+  assert(!await page.locator('#connect').isDisabled());
+  assert(!await page.locator('#advanced').evaluate(e=>e.open));
+  assert.match(await page.locator('#setup-note').textContent(),/Cindy.*无需配置应用 ID/);
+  assert.equal(await page.locator('#advanced summary').textContent(),'管理员设置（可选）');
+  await fs.mkdir(screenshots,{recursive:true});
+  await page.screenshot({path:fileURLToPath(new URL('outlook-builtin-app-ready.png',screenshots)),fullPage:true});
+  await page.locator('#connect').click();await settled();
+  assert.equal(calls.length,1);assert.equal(calls[0].path,'/oauth/outlook_global/connect');
+  entries[0].clientConfigured=false;entries[0].accounts=[];calls.length=0;
   await page.goto('https://outlook.example.test/');await settled();
   const registeredRedirect=key=>'http://127.0.0.1:'+manifest.network.secrets.find(s=>s.key===key).oauth.redirectPort+'/callback';
   assert.equal(await page.locator('#redirect').textContent(),registeredRedirect('outlook_global'));
   assert(await page.locator('#connect').isDisabled());assert(await page.locator('#advanced').evaluate(e=>e.open));
+  assert.match(await page.locator('#setup-note').textContent(),/联系插件维护者或企业 IT/);
   assert.doesNotMatch(await page.locator('#accounts').textContent(),/legacy@example|sdk:old/);
   assert.equal(await page.locator('#connection-mode,#sdk-options').count(),0);
   await page.locator('#client-id').fill('invalid');await page.locator('#save-client').click();await settled();assert.equal(calls.length,0);
@@ -123,5 +137,5 @@ try {
     assert.equal(call.method,'POST');assert.equal(call.body,null);
   }
   assert.deepEqual(errors,[]);assert.deepEqual(unexpected,[]);
-  console.log('PASS Host OAuth settings: app setup, missing-config gate, connect/disconnect, failed disconnect, four simultaneous accounts across both clouds, per-cloud defaults, reconnect deduplication and row isolation, disconnect isolation, legacy state ignored, XSS, four locales + fallback, 320px layout, load failure; 4 fixture screenshots.');
+  console.log('PASS Host OAuth settings: bundled application sign-in without custom setup, administrator-only hints, app setup, missing-config gate, connect/disconnect, failed disconnect, four simultaneous accounts across both clouds, per-cloud defaults, reconnect deduplication and row isolation, disconnect isolation, legacy state ignored, XSS, four locales + fallback, 320px layout, load failure; 5 fixture screenshots.');
 } finally {await browser.close();}

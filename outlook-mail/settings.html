@@ -10,8 +10,8 @@
   <button id="default-cloud" type="button" data-i18n="defaultCloud">Use this service by default</button>
   <button id="connect" class="primary" type="button" data-i18n="connect" disabled>Connect account</button>
   <p id="setup-note" class="hint"></p>
-  <details id="advanced"><summary data-i18n="advanced">Application setup</summary>
-    <p class="hint" data-i18n="setupHelp">For plugin maintainers or your IT administrator: register a public desktop application and supply its Client ID. No client secret is needed. Changing it requires reconnecting existing accounts.</p>
+  <details id="advanced"><summary data-i18n="advanced">Administrator settings (optional)</summary>
+    <p class="hint" data-i18n="setupHelp">The global service includes a dedicated Cindy application. Users can select Add account without registering an application or entering a Client ID. The settings below are only for plugin maintainers or enterprise IT who need a custom application. No client secret is needed. Changing the application requires reconnecting existing accounts.</p>
     <p class="hint"><span data-i18n="redirect">Registered redirect URI</span><br><code id="redirect"></code></p>
     <label for="client-id">Client ID</label><input id="client-id" type="text" autocomplete="off" spellcheck="false" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx">
     <div class="actions"><button id="save-client" type="button" data-i18n="save">Save application</button><button id="reset-client" type="button" data-i18n="reset">Clear custom application</button></div>
