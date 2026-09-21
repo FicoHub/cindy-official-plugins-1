@@ -43,6 +43,13 @@
 6. 提交官方插件 PR 前，补充 `provisioning.json` 条目，并完成恰好 `zh-CN`、`en`、
    `ja`、`ko` 四份 locale 资源。
 
+大型预编译依赖按[依赖接入指南](docs/binary-dependencies.zh-CN.md)迁移：本地保留输出
+调试，Git 只提交源码、声明和许可证，CI 下载并打包。Python 不是本地开发前置条件。
+可以先提交 Ready PR，实机验证项保持未勾选，从 **Verify pull request** 的 Artifacts
+下载测试包，完成正式稳定版/Beta 实机验证后再勾选。上传发生在该勾选检查之前，
+因此最后一项未通过仍可下载；更早的测试/打包失败则需先修复。包保留 7 天，未审核，
+不进入 Platform/OSS。记录具体构建来源和包哈希，不能只凭 CI 绿灯宣称已实机验证。
+
 `.tests/` 下的 `*.test.mjs` 用 Node 内置 test runner 运行，例如：
 
 ```bash
@@ -170,6 +177,17 @@ Signed-off-by: 你的名字 <你的邮箱>
 `prepare-commit-msg` hook。
 
 ## 安全问题
+
+### 预编译依赖
+
+使用 [binary-dependencies.json](docs/binary-dependencies.zh-CN.md) 按需收集大依赖，
+小二进制仍可直接入仓，不接受自定义构建钩子。每个插件直接入仓的二进制按所有平台
+合计，上限 10 MiB。新插件或新增/修改二进制时触发检查；仅改代码/文档或删除二进制
+不强制迁移存量文件。两条路径均保留许可证、人工审查和总包
+大小要求。依赖声明变化必须提升插件版本，
+由维护者人工核对来源、哈希和再分发许可证。
+`node --test .tests/binary-dependencies.test.mjs` 运行离线打包回归；
+PR CI 还会对实际改动的插件试打包。下载、打包与 OIDC 发布分属不同 job。
 
 不要在公开 issue、PR 或讨论中披露漏洞、凭证或可利用细节。请按
 [SECURITY.zh-CN.md](SECURITY.zh-CN.md) 的流程私下报告。英文版见

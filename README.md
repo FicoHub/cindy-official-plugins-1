@@ -248,6 +248,11 @@ file, and Node/CLI calls, use the
 [authoring and migration reference](./docs/plugin-authoring.md). An Agent can
 derive the required adaptations from this reference and the existing code;
 authors do not need to perform a separate migration checklist.
+Unknown capability declarations must not block plugin development or publication.
+Acceptance does not grant runtime permissions. Even with `minCindyVersion`, users
+may directly install on unsupported clients; plugins must handle missing APIs
+with a supported fallback or an upgrade prompt. See the reference's capability
+compatibility section.
 
 New plugins use `schemaVersion: 3` and declare capabilities directly through
 fields such as `tools`, `network`, `node`, or `notify: true`; v3 must not contain
@@ -357,8 +362,18 @@ node scripts/validate-plugin-manifest.mjs ./my-plugin
 
 A `.cindy` file is a ZIP archive whose root contains `ghost.json`, `main.js`,
 and the declared resources—do not wrap them in an extra `my-plugin/` directory.
-After reviewing and committing the plugin files, create the exact archive from
-Git-tracked `HEAD` content with the repository packager:
+For local development, use Forge below or a reviewed explicit file list. After
+source submission, PR CI provides downloadable verification packages; reproducing
+the repository build locally is optional:
+
+Small binaries (up to 10 MiB combined per plugin, across all platforms) may stay in Git under the existing
+license/review/package-size rules. To keep larger prebuilt dependencies out of
+Git, opt into the declarative
+[build-time dependency mechanism](docs/binary-dependencies.md). It collects all
+platforms into the same package. Python 3.11+ is a collector build-environment
+requirement only when reproducing that step locally, not a prerequisite for
+plugin development. Legacy plugins keep the original toolchain; there is no
+client-side dependency download.
 
 ```bash
 .github/scripts/package-plugin.sh my-plugin /tmp/my-plugin-1.0.0.cindy
@@ -366,7 +381,8 @@ unzip -Z1 /tmp/my-plugin-1.0.0.cindy
 ```
 
 The script uses `git archive` for the plugin directory, adds the fixed repository
-legal files, and validates the result. It intentionally excludes uncommitted and
+legal files, collects declared binary dependencies when present, and validates
+the result. It intentionally excludes uncommitted and
 untracked files from the plugin directory. Never
 recursively ZIP a plugin working directory: local `.env`, `.npmrc`, private keys,
 or other credentials may be included. If a harness packages an uncommitted
@@ -378,13 +394,17 @@ The user can import that file through Cindy's local plugin entry. If the chosen
 harness exposes Cindy Forge tools, `ghost_forge_scaffold` can create the same v3
 baseline, `ghost_forge_pack` can validate and package it, and
 `ghost_forge_install` can install it after an explicit user request. These are
-optional accelerators; the source and `.cindy` format are identical.
+optional accelerators; the source and `.cindy` format are identical. Forge does
+not interpret dependency declarations; prepare the output files locally first.
+See the [dependency guide](docs/binary-dependencies.md) for migration steps,
+complete declaration examples and downloading PR verification packages.
 
 Before submitting to this official repository, add a `provisioning.json` entry
 and declare locale files for exactly `zh-CN`, `en`, `ja`, and `ko`, covering the
 plugin text and every tool description. Then follow
-[`CONTRIBUTING.md`](./CONTRIBUTING.md) and install the exact packaged `.cindy` on
-a real device running an eligible stable production or Beta Cindy build.
+[`CONTRIBUTING.md`](./CONTRIBUTING.md). You may first open a PR to obtain its test
+package; before merging, install and verify the exact `.cindy` on a real device
+running an eligible stable production or Beta Cindy build, then check the attestation.
 
 `taptap-maker/vendor/taptap-maker/` ships the official `@taptap/maker@0.0.33`
 with the plugin. When upgrading, replace the published npm package content
