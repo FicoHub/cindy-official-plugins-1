@@ -116,10 +116,22 @@ var OutlookMail = (() => {
     if (account.status !== 'connected') throw new MailError('ACCOUNT_EXPIRED','账号授权已失效，请在插件详情页重新连接同一账号。');
     return { ...CLOUDS[cloud], cloud, account:account.id };
   }
+  async function accountInfo(a,callId,transport) {
+    if (!a || typeof a !== 'object' || Array.isArray(a) || Object.keys(a).some(k => k !== 'profile_account')) invalid('账号查询仅支持可选的 profile_account。');
+    if (a.profile_account !== undefined) text(a.profile_account,'profile_account');
+    const regions = await accounts();
+    if (a.profile_account === undefined) return {regions};
+    const ctx = await choose({account:a.profile_account});
+    const data = await api({url:ctx.base+'/me?$select=mail,userPrincipalName',method:'GET'},ctx,callId,'profile',transport);
+    if (![data.mail,data.userPrincipalName].every(v => v === null || typeof v === 'string')) throw new MailError('INVALID_RESPONSE','微软未返回完整的账号资料，请重新查询。');
+    return {regions,profile:{cloud:ctx.cloud,account:ctx.account,mail:data.mail,user_principal_name:data.userPrincipalName}};
+  }
   function validPageUrl(raw,ctx,action) {
     let u; try { u = new URL(raw); } catch (_) { invalid('分页地址无效，请重新查询。'); }
-    const valid = action === 'search' ? /^\/v1\.0\/me\/(?:messages|mailFolders\/[^/]+\/messages)$/.test(u.pathname)
-      : /^\/v1\.0\/me\/mailFolders(?:\/[^/]+\/childFolders)?$/.test(u.pathname);
+    // Graph nextLink can use lowercase navigation names and OData key syntax.
+    // Accept only the same /me collections; never follow /users or action URLs.
+    const valid = action === 'search' ? /^\/v1\.0\/me\/(?:messages|mailFolders(?:\/[^/]+|\('[^'/]+'\))\/messages)$/i.test(u.pathname)
+      : /^\/v1\.0\/me\/mailFolders(?:(?:\/[^/]+|\('[^'/]+'\))\/childFolders)?$/i.test(u.pathname);
     if (u.origin !== new URL(ctx.base).origin || u.username || u.password || u.hash || !valid) invalid('分页地址不属于当前邮箱区域或操作，请重新查询。');
     return u.href;
   }
@@ -232,7 +244,7 @@ var OutlookMail = (() => {
     }
     return {...common,execution_status:'executed',message:summary(data),...(a.action === 'move' ? {previous_id:a.message_id,note:'后续操作请使用返回的新 ID。'} : {})};
   }
-  return {CLOUDS,MailError,validate,build,accounts,run,encodePage,decodePage};
+  return {CLOUDS,MailError,validate,build,accounts,accountInfo,run,encodePage,decodePage};
 })();
 // OAuth, token refresh and Authorization injection belong to the Host.
 // The plugin receives account metadata only; every mail request uses cindy.fetch.
@@ -240,7 +252,7 @@ if (typeof cindy !== 'undefined') cindy.onHostMessage(async msg => {
   if (msg.type !== 'tool-call') return;
   try {
     let result;
-    if (msg.tool === 'outlook_accounts') result = {regions:await OutlookMail.accounts()};
+    if (msg.tool === 'outlook_accounts') result = await OutlookMail.accountInfo(msg.args || {},msg.callId,req=>cindy.fetch(req));
     else if (msg.tool === 'outlook_mail') result = await OutlookMail.run(msg.args || {},msg.callId,req=>cindy.fetch(req));
     else throw new OutlookMail.MailError('UNKNOWN_MAIL_TOOL','未知邮件工具，请重新获取插件工具清单。');
     await cindy.send({type:'tool-result',callId:msg.callId,ok:true,result});

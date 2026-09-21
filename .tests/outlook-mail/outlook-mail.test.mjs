@@ -21,7 +21,7 @@ function harness({accounts=structuredClone(fixture),config={},localFailure=false
   vm.runInContext(source,context);
   const M=context.OutlookMail;
   return {M,requests,results,locals,call:async args=>{await listener({type:'tool-call',tool:'outlook_mail',args,callId:'test-call'});return results.at(-1);},
-    accounts:async()=>{await listener({type:'tool-call',tool:'outlook_accounts',args:{},callId:'list-call'});return results.at(-1);}};
+    accounts:async(args={})=>{await listener({type:'tool-call',tool:'outlook_accounts',args,callId:'list-call'});return results.at(-1);}};
 }
 const send={action:'send',to:'reader@example.test',subject:'Test',body_text:'Hello'};
 const mutation=(action)=> ['send','draft'].includes(action) ? {...send,action} : action === 'move' ? {action,message_id:'old/id+=',target_folder:'target/id'} : {action,message_id:'old/id+='};
@@ -81,6 +81,34 @@ test('all four catalog locales preserve tool set',()=>{
 });
 test('account listing contains no tokens and makes no Graph request',async()=>{
   const h=harness();const r=await h.accounts();assert(r.ok);assert.equal(r.result.regions.length,2);assert.equal(h.requests.length,0);
+});
+test('opt-in profile uses the selected account and its cloud without exposing other fields',async()=>{
+  for(const [account,base] of [['g2',ctx.base],['c1','https://microsoftgraph.chinacloudapi.cn/v1.0']]) {
+    const h=harness({reply:response({mail:'mailbox@example.test',userPrincipalName:'login@example.test',id:'private-id',extra:'private'})});
+    const r=await h.accounts({profile_account:account});assert(r.ok);
+    assert.equal(r.result.profile.account,account);assert.equal(r.result.profile.mail,'mailbox@example.test');
+    assert.equal(r.result.profile.user_principal_name,'login@example.test');assert.equal(r.result.profile.extra,undefined);
+    assert.equal(h.requests.length,1);assert.equal(h.requests[0].method,'GET');assert.equal(h.requests[0].authAccount,account);
+    assert.equal(h.requests[0].callId,'list-call');assert.equal(h.requests[0].url,base+'/me?$select=mail,userPrincipalName');
+    assert.equal(h.requests[0].headers.Authorization,undefined);
+  }
+});
+test('profile null mail is never replaced with the sign-in name',async()=>{
+  const h=harness({reply:response({mail:null,userPrincipalName:'login@example.test'})});
+  const r=await h.accounts({profile_account:'g1'});assert(r.ok);assert.equal(r.result.profile.mail,null);
+});
+test('invalid profile arguments and unavailable accounts fail before Graph',async()=>{
+  for(const args of [{profile_account:''},{profile_account:1},{profile_account:'missing'},{url:'https://example.test'},{profile_account:'g1',cloud:'china'}]) {
+    const h=harness();const r=await h.accounts(args);assert(!r.ok);assert.match(r.message,/not_executed/);assert.equal(h.requests.length,0);
+  }
+  const accounts=structuredClone(fixture);accounts[0].accounts[0].status='expired';const h=harness({accounts});
+  assert.equal((await h.accounts({profile_account:'g1'})).errorCode,'ACCOUNT_EXPIRED');assert.equal(h.requests.length,0);
+});
+test('profile failures remain read-only and do not leak transport or response details',async()=>{
+  for(const reply of [new Error('private transport detail'),response({error:{message:'private Graph detail'}},403),response({mail:42,userPrincipalName:'login@example.test'}),response({})]) {
+    const h=harness({reply});const r=await h.accounts({profile_account:'g1'});assert(!r.ok);assert.match(r.message,/not_executed/);
+    assert.doesNotMatch(r.message,/private|login@example/);assert.equal(h.requests.length,1);assert.equal(h.requests[0].method,'GET');
+  }
 });
 test('default global routes to explicitly resolved account and carries callId',async()=>{
   const h=harness();assert((await h.call({action:'search'})).ok);const q=h.requests[0];
@@ -176,6 +204,20 @@ test('pagination preserves complete query and binds to cloud/account/action',asy
 test('hostile pagination links never dispatch',async()=>{
   for(const url of ['https://attacker.example.test/v1.0/me/messages','https://graph.microsoft.com/v1.0/users/other/messages','https://graph.microsoft.com/v1.0/me/sendMail','https://name:pass@graph.microsoft.com/v1.0/me/messages','https://graph.microsoft.com/v1.0/me/messages#fragment']){
     const h=harness();const token=btoa(JSON.stringify({url,cloud:'global',account:'g1',action:'search'}));const r=await h.call({action:'search',page_token:token});assert(!r.ok,url);assert.equal(h.requests.length,0);
+  }
+});
+test('Graph OData folder keys and lowercase nextLinks keep the original query',async()=>{
+  for(const [action,path] of [['search',"/me/mailfolders('folder%2Bid%3D')/messages"],['search','/me/mailfolders/folder/messages'],['list_folders',"/me/mailfolders('folder')/childfolders"]]) {
+    const url=ctx.base+path+'?$skip=1&$top=1';const h=harness({reply:response({value:[], '@odata.nextLink':url})});
+    const first=await h.call({action});assert(first.ok);const token=first.result.next_page_token;
+    await h.call({action,page_token:token});assert.equal(h.requests[1].url,url);
+    const count=h.requests.length;assert(!(await h.call({action,account:'g2',page_token:token})).ok);assert.equal(h.requests.length,count);
+  }
+});
+test('OData pagination cannot switch user, collection, origin or operation',async()=>{
+  for(const suffix of ["/users('other')/mailfolders('folder')/messages","/me/mailfolders('folder')/messages/delta","/me/mailfolders('folder')/sendMail","/me/mailfolders('folder')/messages('message')","/me/mailfolders('folder/child')/messages"]) {
+    const h=harness();const token=btoa(JSON.stringify({url:ctx.base+suffix,cloud:'global',account:'g1',action:'search'}));
+    assert(!(await h.call({action:'search',page_token:token})).ok);assert.equal(h.requests.length,0);
   }
 });
 test('write transport failures and 5xx never retry and declare unknown',async()=>{

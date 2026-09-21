@@ -16,6 +16,8 @@
 
 设置页同时按区域展示全部已连接账号，可以持续添加多个账号，不必退出已有账号；同一身份重新授权由 Host 作为重连处理。每行的重连、默认和断开操作绑定该账号自身的区域，不受上方新增账号服务选择影响。邮件调用传 `account` 时使用指定账号；只传 `cloud` 时使用该区域默认账号；都不传时使用保存的默认区域及其默认账号。断开一个账号不会退出其他账号或另一区域。中国区仍需配置独立应用。
 
+不带参数调用 `outlook_accounts` 只查看连接元数据，不请求 Graph。核对账号地址时，将返回的账号 ID 作为 `profile_account`：只读 Graph 资料返回 `mail`（SMTP 地址，可能为空）和 `user_principal_name`（登录名）。`mail` 为空时不得用登录名代替；地址查询不证明可发送或已送达。使用现有 User.Read 委托权限，不返回令牌。
+
 ## 邮件操作
 
 提供账号列表、KQL／结构化搜索、阅读、带 CC/BCC 的纯文本发送、草稿、分页文件夹、已读／未读及移动。读取不标记已读。写操作必须来自明确用户意图，并核对发件账号、收件人和内容。发送成功只表示微软接受，不代表送达。执行状态为 executed 或 unknown 的失败，必须先检查邮箱再决定是否重复。插件不重试邮件请求；OAuth 刷新及相关重试由 Host 决定。
@@ -26,6 +28,6 @@
 
 2.0.0 替换 SDK 授权路径，旧 SDK 会话与保存的账号元数据不再使用，需要通过 Host OAuth 重新连接。不会读取或清理其他微软工具的凭据缓存，也不会从旧 KV 自动恢复登录。
 
-运行 `node --test .tests/outlook-mail.test.mjs` 和仓库规定的契约、本地化、provisioning、发布流程检查。提交后使用 `.github/scripts/package-plugin.sh outlook-mail /tmp/outlook-mail-2.1.1.cindy` 打包。浏览器测试使用模拟 Host 接口与虚构账号，不作为真实 OAuth 证据；见 `.tests/outlook-mail/settings-browser.mjs`。
+运行 `node --test .tests/outlook-mail.test.mjs` 和仓库规定的契约、本地化、provisioning、发布流程检查。提交后使用 `.github/scripts/package-plugin.sh outlook-mail /tmp/outlook-mail-2.1.2.cindy` 打包。浏览器测试使用模拟 Host 接口与虚构账号，不作为真实 OAuth 证据；见 `.tests/outlook-mail/settings-browser.mjs`。
 
-管理员于 2026-09-09 提供了全球版公共应用 ID；其回调、支持的账号类型及委托权限仍需真实登录核对。本版本尚未完成真实 Host OAuth 登录或正式客户端邮件验收，不能沿用早期 SDK 开发包的实机结果。新插件准入和最终实机验收仍需维护者审查。provisioning 是空定向名单，不自动分发；PR 保持正式待审，测试及打包限制不作放宽。
+管理员于 2026-09-09 提供了全球版公共应用 ID。已在 Cindy Beta 验证真实 Host OAuth 登录及单账号只读操作；确切包、客户端版本和当前覆盖范围记录于 PR。发送、草稿、标记和移动仍需获授权的真实邮箱验收；多账号与中国区保持未验证。早期 SDK 开发包结果不能替代本实现的验收。新插件准入和最终实机验收仍需维护者审查。provisioning 是空定向名单，不自动分发；测试及打包限制不作放宽。
